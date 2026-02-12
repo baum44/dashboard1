@@ -1,1 +1,973 @@
 
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nebenkosten Dashboard | Börnsener Weg</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1" integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+    <style>
+        :root {
+            --bg: #f5f6fa;
+            --card: #ffffff;
+            --text: #2d3436;
+            --text-light: #636e72;
+            --border: #e0e0e0;
+            --blue: #2563eb;
+            --orange: #ea580c;
+            --orange-light: rgba(234,88,12,0.12);
+            --green: #16a34a;
+            --green-light: rgba(22,163,74,0.1);
+            --purple: #7c3aed;
+            --red: #dc2626;
+            --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
+        }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg); color: var(--text); line-height:1.5;
+        }
+        .dashboard { max-width:1300px; margin:0 auto; padding:24px; }
+        header { margin-bottom:32px; }
+        header h1 { font-size:28px; font-weight:700; }
+        header .sub { font-size:14px; color:var(--text-light); margin-top:2px; }
+        .section { margin-bottom:40px; }
+        .section-title {
+            font-size:20px; font-weight:700; margin-bottom:16px; padding-bottom:8px;
+            border-bottom:3px solid var(--orange); display:inline-block;
+        }
+        .section-title.strom { border-color:var(--blue); }
+        .section-title.wasser { border-color:var(--green); }
+        .card {
+            background:var(--card); border-radius:12px; padding:24px;
+            box-shadow:var(--shadow); margin-bottom:20px;
+        }
+        .card h3 { font-size:15px; font-weight:600; margin-bottom:4px; }
+        .card .subtitle { font-size:12px; color:var(--text-light); margin-bottom:14px; }
+        .chart-box { position:relative; width:100%; height:340px; }
+        .chart-box.short { height:260px; }
+        .chart-box.tall { height:400px; }
+        .stats-row {
+            display:grid; grid-template-columns:repeat(auto-fit, minmax(180px,1fr));
+            gap:12px; margin-bottom:20px;
+        }
+        .stat-card {
+            background:var(--card); border-radius:10px; padding:16px;
+            box-shadow:var(--shadow); border-left:4px solid var(--orange);
+        }
+        .stat-card.strom { border-left-color:var(--blue); }
+        .stat-card.wasser { border-left-color:var(--green); }
+        .stat-card .lbl { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.4px; color:var(--text-light); }
+        .stat-card .val { font-size:24px; font-weight:700; margin-top:4px; }
+        .stat-card .val.orange { color:var(--orange); }
+        .stat-card .val.blue { color:var(--blue); }
+        .stat-card .val.green { color:var(--green); }
+        .stat-card .val.red { color:var(--red); }
+        .stat-card .det { font-size:11px; color:var(--text-light); margin-top:2px; }
+        .alert-box {
+            background:linear-gradient(135deg, #fef3c7, #fff7ed);
+            border:1.5px solid #f59e0b; border-radius:10px;
+            padding:16px 20px; margin-bottom:20px; font-size:14px;
+        }
+        .alert-box strong { color:#b45309; }
+        .info-box {
+            background:linear-gradient(135deg, #ede9fe, #e0e7ff);
+            border:1.5px solid #8b5cf6; border-radius:10px;
+            padding:16px 20px; margin-bottom:20px; font-size:14px;
+        }
+        .info-box strong { color:var(--purple); }
+        .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+        table { width:100%; border-collapse:collapse; font-size:13px; }
+        th { text-align:left; padding:8px 10px; background:#f8f9fa; border-bottom:2px solid var(--border); font-weight:600; font-size:11px; text-transform:uppercase; color:var(--text-light); }
+        td { padding:8px 10px; border-bottom:1px solid #f0f0f0; }
+        tr:hover td { background:#f8f9fa; }
+        .badge {
+            display:inline-block; font-size:11px; font-weight:600; padding:2px 8px;
+            border-radius:10px;
+        }
+        .badge.delivery { background:var(--orange-light); color:var(--orange); }
+        .badge.up { background:rgba(220,38,38,0.08); color:var(--red); }
+        .badge.down { background:var(--green-light); color:var(--green); }
+        .comparison-row { display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #f0f0f0; font-size:14px; }
+        .comparison-row:last-child { border-bottom:none; }
+        .comparison-row .lbl { color:var(--text-light); }
+        .comparison-row .v { font-weight:600; }
+        footer { text-align:center; padding:24px; color:var(--text-light); font-size:12px; }
+        @media (max-width:600px) {
+    .dashboard { padding:10px; }
+    .stats-row { grid-template-columns:1fr 1fr; gap:8px; }
+    .stat-card { padding:12px; }
+    .stat-card .val { font-size:20px; }
+    .card { padding:16px; }
+    .card h3 { font-size:14px; }
+    .chart-box { height:300px; }
+    .chart-box.tall { height:360px; }
+    .chart-box.short { height:240px; }
+    header h1 { font-size:22px; }
+    table { font-size:12px; }
+    td, th { padding:6px 8px; }
+    .grid-2 { grid-template-columns:1fr; gap:12px; }
+}
+    </style>
+</head>
+<body>
+<div class="dashboard">
+    <header>
+        <h1>Nebenkosten Dashboard</h1>
+        <div class="sub">Börnsener Weg | seit September 2024 | Stand: 12. Februar 2026</div>
+    </header>
+
+    <!-- ======================== ÖL ======================== -->
+    <div class="section">
+        <div class="section-title">Heizöl</div>
+
+        <div class="stats-row" id="oilStats"></div>
+
+        <div class="info-box">
+            <strong>April 2025:</strong> Neue Ölheizung eingebaut + Warmwasser Wärmepumpe installiert.
+            Seitdem deutlich weniger Ölverbrauch (die Wärmepumpe übernimmt das Warmwasser, mehr Strom dafür).
+        </div>
+
+        <!-- Oil consumption + temperature chart -->
+        <div class="card">
+            <h3>Ölverbrauch & Temperatur pro Monat</h3>
+            <div class="subtitle">Balken = Ölverbrauch (Liter). Linie = Monatsmitteltemperatur Hamburg (DWD). Schraffiert = Prognose basierend auf Klimanormalen.</div>
+            <div class="chart-box tall"><canvas id="oilTempChart"></canvas></div>
+        </div>
+
+        <!-- Year-over-Year comparison chart -->
+        <div class="card">
+            <h3>Jahresvergleich: Ölverbrauch & Temperatur</h3>
+            <div class="subtitle">Gleiche Monate im Vergleich. X-Achse = Jan bis Dez. Jedes Jahr eine eigene Farbe. Temperaturlinien in passender Farbe.</div>
+            <div class="chart-box tall"><canvas id="oilYoyChart"></canvas></div>
+        </div>
+
+        <!-- Year comparison table -->
+        <div class="card">
+            <h3>Jahresverbrauch: 2025 vs. 2026 Prognose</h3>
+            <div class="subtitle">Jan bis Apr: 26% Einsparung durch neue Heizung. Mai bis Dez: gleicher Verbrauch (neue Heizung in beiden Jahren). Jan+Feb 2026: gemessene Werte.</div>
+            <table id="yearCompareTable">
+                <thead><tr><th>Monat</th><th style="text-align:right">2025 (tatsächlich)</th><th style="text-align:right">2026 (Prognose)</th><th>Methode</th></tr></thead>
+                <tbody></tbody>
+            </table>
+        </div>
+
+        <!-- Comparison before/after -->
+        <div class="grid-2">
+            <div class="card">
+                <h3>Vorher vs. Nachher: Heizungseffekt</h3>
+                <div class="subtitle">Gleicher Zeitraum Sep bis Jan (nur abgeschlossene Monate), alte vs. neue Heizung</div>
+                <div id="heizungCompare"></div>
+            </div>
+            <div class="card">
+                <h3>Öllieferungen</h3>
+                <div class="subtitle">Bisherige Lieferungen und Kosten</div>
+                <table id="deliveryTable">
+                    <thead><tr><th>Datum</th><th>Menge</th><th>Tankstand danach</th></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Tank level + forecast -->
+        <div class="card">
+            <h3>Öltank Füllstand + Prognose</h3>
+            <div class="subtitle">Gestrichelt = Prognose basierend auf Temperatur Modell. Rote Zone = Nachbestellen nötig (~800L).</div>
+            <div class="chart-box tall"><canvas id="tankChart"></canvas></div>
+        </div>
+
+        
+        <!-- Oil price chart -->
+        <div class="card">
+            <h3>Heizölpreis (EUR/100 Liter)</h3>
+            <div class="subtitle">Monatsdurchschnitte. Gestrichelt = Prognose 2026 (Quellen: Tecson, Libertex, Heizoelboerse). Tiefpunkt wird im Sommer 2026 erwartet (~80 EUR).</div>
+            <div class="chart-box"><canvas id="priceChart"></canvas></div>
+        </div>
+    </div>
+
+    <!-- ======================== STROM ======================== -->
+    <div class="section">
+        <div class="section-title strom">Strom</div>
+        <div class="stats-row" id="stromStats"></div>
+
+        <div class="card">
+            <h3>Stromverbrauch pro Monat (kWh)</h3>
+            <div class="subtitle">Interpoliert auf Kalendermonate. Gestrichelte Linie = Neue Heizung (April 2025). Danach etwas höherer Verbrauch durch Warmwasser Wärmepumpe.</div>
+            <div class="chart-box tall"><canvas id="stromChart"></canvas></div>
+        </div>
+
+        <div class="card">
+            <h3>Strom: Tagesverbrauch (kWh/Tag)</h3>
+            <div class="subtitle">Normalisiert auf Tagesbasis</div>
+            <div class="chart-box"><canvas id="stromDailyChart"></canvas></div>
+        </div>
+    </div>
+
+    <!-- ======================== WASSER ======================== -->
+    <div class="section">
+        <div class="section-title wasser">Wasser</div>
+        <div class="stats-row" id="wasserStats"></div>
+
+        <div class="card">
+            <h3>Wasserverbrauch pro Monat (m³)</h3>
+            <div class="subtitle">Interpoliert auf Kalendermonate</div>
+            <div class="chart-box short"><canvas id="wasserChart"></canvas></div>
+        </div>
+    </div>
+
+    <footer>
+        Datenquelle: Nebenkosten Heizkosten.xlsx | Temperaturdaten: Deutscher Wetterdienst (DWD), Station Hamburg<br>
+        Heizölpreise: Tecson, HeizOel24, Statista | Prognosen: Tecson, Libertex, Heizoelboerse
+    </footer>
+</div>
+
+<script>
+const MN = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
+function ml(m){ const [y,mo]=m.split('-'); return MN[+mo-1]+"'"+y.slice(2); }
+function num(v,d=0){ return v.toLocaleString('de-DE',{minimumFractionDigits:d,maximumFractionDigits:d}); }
+const HEIZUNG='2025-04';
+Chart.register(ChartDataLabels);
+Chart.defaults.plugins.datalabels = { display: false };
+
+// ========== LIVE DATA CONFIG ==========
+const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vS_TcYMpvU0HAKFUvIAXkpqVJ5z_orVJ-ga4hPXCq2654Ye87FLW5kJyW8z7oNAK5lR2uXaNuCMHnhB/pub?gid=606355933&single=true&output=csv';
+let liveTankLevel = 1983;
+let liveTankDate = '8. Feb';
+
+// ========== DATA ==========
+const oilMonthly = [
+    {m:'2024-09',c:390,d:13.0,t:'a'},
+    {m:'2024-10',c:606,d:19.5,t:'a'},
+    {m:'2024-11',c:871,d:29.0,t:'a'},
+    {m:'2024-12',c:1202,d:38.8,t:'a'},
+    {m:'2025-01',c:1289,d:41.6,t:'a'},
+    {m:'2025-02',c:985,d:35.2,t:'a'},
+    {m:'2025-03',c:1038,d:33.5,t:'a'},
+    {m:'2025-04',c:193,d:6.4,t:'a'},
+    {m:'2025-05',c:106,d:3.4,t:'a'},
+    {m:'2025-06',c:null,d:null,t:'a'},
+    {m:'2025-07',c:null,d:null,t:'a'},
+    {m:'2025-08',c:47,d:1.5,t:'a'},
+    {m:'2025-09',c:219,d:7.3,t:'a'},
+    {m:'2025-10',c:495,d:16.0,t:'a'},
+    {m:'2025-11',c:804,d:26.8,t:'a'},
+    {m:'2025-12',c:589,d:19.0,t:'a'},
+    {m:'2026-01',c:1129,d:36.4,t:'a'},
+    {m:'2026-02',c:1229,d:43.9,t:'a'},
+    {m:'2026-03',c:768,d:24.8,t:'f'},
+    {m:'2026-04',c:143,d:4.8,t:'f'},
+    {m:'2026-05',c:106,d:3.4,t:'f'},
+    {m:'2026-06',c:0,d:0,t:'f'},
+    {m:'2026-07',c:0,d:0,t:'f'},
+    {m:'2026-08',c:47,d:1.5,t:'f'},
+    {m:'2026-09',c:219,d:7.3,t:'f'},
+    {m:'2026-10',c:495,d:16.0,t:'f'},
+    {m:'2026-11',c:804,d:26.8,t:'f'},
+    {m:'2026-12',c:589,d:19.0,t:'f'}
+];
+
+const temps = {
+    '2024-09':16.1,'2024-10':11.0,'2024-11':6.3,'2024-12':5.2,
+    '2025-01':2.4,'2025-02':2.3,'2025-03':6.4,'2025-04':10.5,
+    '2025-05':13.1,'2025-06':17.4,'2025-07':18.7,'2025-08':17.9,
+    '2025-09':15.7,'2025-10':10.8,'2025-11':6.3,'2025-12':4.9,
+    '2026-01':-0.3,'2026-02':1.5,
+    '2026-03':5.0,'2026-04':9.0,'2026-05':13.5,'2026-06':16.5,
+    '2026-07':18.0,'2026-08':17.5,'2026-09':14.0,'2026-10':10.0,
+    '2026-11':5.6,'2026-12':3.0
+};
+const tempType = {};
+Object.keys(temps).forEach(m => { tempType[m] = m <= '2026-01' ? 'actual' : 'forecast'; });
+
+const stromMonthly = [
+    {m:'2024-09',c:555,d:18.5},{m:'2024-10',c:534,d:17.2},{m:'2024-11',c:503,d:16.8},
+    {m:'2024-12',c:636,d:20.5},{m:'2025-01',c:643,d:20.8},{m:'2025-02',c:523,d:18.7},
+    {m:'2025-03',c:579,d:18.7},{m:'2025-04',c:518,d:17.3},{m:'2025-05',c:751,d:24.2},
+    {m:'2025-06',c:648,d:21.6},{m:'2025-07',c:497,d:16.0},{m:'2025-08',c:361,d:11.7},
+    {m:'2025-09',c:492,d:16.4},{m:'2025-10',c:595,d:19.2},{m:'2025-11',c:611,d:20.4},
+    {m:'2025-12',c:730,d:23.6},{m:'2026-01',c:715,d:23.0},{m:'2026-02',c:647,d:23.1}
+];
+
+const wasserMonthly = [
+    {m:'2024-09',c:21.4,d:0.7},{m:'2024-10',c:19.4,d:0.6},{m:'2024-11',c:18.4,d:0.6},
+    {m:'2024-12',c:19.8,d:0.6},{m:'2025-01',c:20.6,d:0.7},{m:'2025-02',c:18.6,d:0.7},
+    {m:'2025-03',c:20.6,d:0.7},{m:'2025-04',c:19.9,d:0.7},{m:'2025-05',c:20.6,d:0.7},
+    {m:'2025-06',c:17.1,d:0.6},{m:'2025-07',c:18.3,d:0.6},{m:'2025-08',c:18.4,d:0.6},
+    {m:'2025-09',c:17.8,d:0.6},{m:'2025-10',c:18.4,d:0.6},{m:'2025-11',c:18.3,d:0.6},
+    {m:'2025-12',c:5.4,d:0.7}
+];
+
+const tankTimeline = [
+    {d:'2024-09-01',l:1176,t:'a'},{d:'2024-09-03',l:1190,t:'a'},{d:'2024-09-11',l:1084,t:'a'},
+    {d:'2024-09-13',l:1058,t:'a'},{d:'2024-09-16',l:1058,t:'a'},{d:'2024-09-18',l:965,t:'a'},
+    {d:'2024-09-26',l:2909,t:'a'},{d:'2024-10-01',l:2777,t:'a'},{d:'2024-10-05',l:2750,t:'a'},
+    {d:'2024-10-10',l:2645,t:'a'},{d:'2024-10-15',l:2512,t:'a'},{d:'2024-10-18',l:2380,t:'a'},
+    {d:'2024-10-25',l:2261,t:'a'},{d:'2024-10-27',l:2248,t:'a'},{d:'2024-11-06',l:2116,t:'a'},
+    {d:'2024-11-07',l:5024,t:'a'},{d:'2024-11-13',l:4892,t:'a'},{d:'2024-11-17',l:4760,t:'a'},
+    {d:'2024-12-11',l:3967,t:'a'},{d:'2024-12-16',l:3702,t:'a'},
+    {d:'2025-01-16',l:2512,t:'a'},{d:'2025-01-31',l:1851,t:'a'},{d:'2025-02-07',l:1587,t:'a'},
+    {d:'2025-02-19',l:4231,t:'a'},{d:'2025-03-14',l:3332,t:'a'},{d:'2025-03-20',l:3159,t:'a'},
+    {d:'2025-04-06',l:2645,t:'a'},{d:'2025-04-15',l:2645,t:'a'},{d:'2025-04-25',l:2645,t:'a'},
+    {d:'2025-05-21',l:2512,t:'a'},{d:'2025-07-01',l:2512,t:'a'},{d:'2025-08-22',l:2512,t:'a'},
+    {d:'2025-09-17',l:2380,t:'a'},{d:'2025-09-30',l:2248,t:'a'},{d:'2025-10-10',l:2116,t:'a'},
+    {d:'2025-11-10',l:1587,t:'a'},{d:'2025-11-16',l:1455,t:'a'},{d:'2025-11-21',l:1322,t:'a'},
+    {d:'2025-11-28',l:4099,t:'a'},{d:'2025-12-08',l:3834,t:'a'},{d:'2025-12-17',l:3702,t:'a'},
+    {d:'2025-12-28',l:3570,t:'a'},{d:'2026-01-11',l:3041,t:'a'},{d:'2026-01-17',l:2790,t:'a'},
+    {d:'2026-01-24',l:2645,t:'a'},{d:'2026-02-08',l:1983,t:'a'},
+    {d:'2026-02-28',l:1105,t:'f'},{d:'2026-03-31',l:337,t:'f'},{d:'2026-05-31',l:88,t:'f'}
+];
+
+const deliveries = [
+    {date:'26.09.2024',amount:2000,level:2909,price:89.5},
+    {date:'07.11.2024',amount:3000,level:5024,price:99.5},
+    {date:'19.02.2025',amount:3000,level:4231,price:96.0},
+    {date:'28.11.2025',amount:3000,level:4099,price:95.7}
+];
+
+const oilPrices = [
+    {m:'2024-09',p:89.5,t:'a'},{m:'2024-10',p:97.0,t:'a'},{m:'2024-11',p:99.5,t:'a'},{m:'2024-12',p:105.0,t:'a'},
+    {m:'2025-01',p:102.0,t:'a'},{m:'2025-02',p:96.0,t:'a'},{m:'2025-03',p:90.0,t:'a'},{m:'2025-04',p:92.0,t:'a'},
+    {m:'2025-05',p:87.0,t:'a'},{m:'2025-06',p:89.0,t:'a'},{m:'2025-07',p:91.0,t:'a'},{m:'2025-08',p:90.0,t:'a'},
+    {m:'2025-09',p:92.0,t:'a'},{m:'2025-10',p:91.4,t:'a'},{m:'2025-11',p:95.7,t:'a'},{m:'2025-12',p:96.0,t:'a'},
+    {m:'2026-01',p:95.0,t:'a'},{m:'2026-02',p:93.4,t:'a'},
+    {m:'2026-03',p:90.0,t:'f'},{m:'2026-04',p:87.0,t:'f'},{m:'2026-05',p:83.0,t:'f'},{m:'2026-06',p:80.0,t:'f'},
+    {m:'2026-07',p:81.0,t:'f'},{m:'2026-08',p:82.0,t:'f'},{m:'2026-09',p:85.0,t:'f'},{m:'2026-10',p:88.0,t:'f'},
+    {m:'2026-11',p:91.0,t:'f'},{m:'2026-12',p:93.0,t:'f'}
+];
+
+// ========== HEIZUNG LINE PLUGIN ==========
+function heizungPlugin(heizMonth) {
+    return {
+        id:'hl_'+Math.random(),
+        beforeDraw(chart) {
+            const labels = chart.data.labels;
+            const idx = labels.indexOf(ml(heizMonth));
+            if(idx<0) return;
+            let x;
+            for(let i=0;i<chart.data.datasets.length;i++){
+                const meta=chart.getDatasetMeta(i);
+                if(meta && meta.data && meta.data[idx]){ x=meta.data[idx].x; break; }
+            }
+            if(!x) return;
+            const ctx=chart.ctx, yA=chart.scales.y;
+            ctx.save();
+            ctx.beginPath(); ctx.setLineDash([6,4]);
+            ctx.strokeStyle='#7c3aed'; ctx.lineWidth=2;
+            ctx.moveTo(x,yA.top); ctx.lineTo(x,yA.bottom); ctx.stroke();
+            ctx.setLineDash([]); ctx.fillStyle='#7c3aed';
+            ctx.font='bold 10px sans-serif'; ctx.textAlign='center';
+            ctx.fillText('Neue Heizung',x,yA.top-6);
+            ctx.restore();
+        }
+    };
+}
+
+// ========== OIL STATS ==========
+function renderOilStats(){
+    const actual = oilMonthly.filter(d=>d.t==='a'&&d.c!==null);
+    const y2025 = oilMonthly.filter(d=>d.m.startsWith('2025'));
+    const total2025 = y2025.reduce((s,d)=>s+(d.c||0),0);
+    // Prognose 2026: Jan gemessen + Feb-Apr mit 26% Effizienz + Mai-Dez wie 2025
+    const EFF = 0.74;
+    const oilMap = {};
+    oilMonthly.forEach(d => { oilMap[d.m] = d; });
+    const proj2026 = 1129 + Math.round(985*EFF) + Math.round(1038*EFF) + Math.round(193*EFF) + 106+0+0+47+219+495+804+589;
+    const lastMonth = actual[actual.length-1];
+    const daysLeft = Math.floor(liveTankLevel / lastMonth.d);
+    const saving = total2025>0 ? Math.round((1-proj2026/total2025)*100) : 0;
+
+    document.getElementById('oilStats').innerHTML = `
+        <div class="stat-card"><div class="lbl">Aktueller Verbrauch</div><div class="val orange">${num(lastMonth.d,1)} L/Tag</div><div class="det">${ml(lastMonth.m)}: ${num(lastMonth.c)} L</div></div>
+        <div class="stat-card"><div class="lbl">Tankstand (${liveTankDate})</div><div class="val ${liveTankLevel<1000?'red':'orange'}">${num(liveTankLevel)} L</div><div class="det">Reicht noch ca. ${daysLeft} Tage</div></div>
+        <div class="stat-card"><div class="lbl">Gesamt 2025</div><div class="val orange">${num(total2025)} L</div><div class="det">Jun/Jul = 0 (Tank unverändert)</div></div>
+        <div class="stat-card"><div class="lbl">Prognose 2026</div><div class="val green">~${num(proj2026)} L</div><div class="det">${saving}% weniger als 2025</div></div>
+    `;
+}
+
+// ========== OIL + TEMPERATURE CHART ==========
+function renderOilTempChart(){
+    const ctx = document.getElementById('oilTempChart').getContext('2d');
+    const data = oilMonthly;
+    const labels = data.map(d=>ml(d.m));
+
+    const barColors = data.map(d => {
+        if(d.t==='f') return 'rgba(234,88,12,0.3)';
+        if(d.m < HEIZUNG) return 'rgba(234,88,12,0.55)';
+        return 'rgba(234,88,12,0.9)';
+    });
+    const barBorders = data.map(d => d.t==='f' ? 'rgba(234,88,12,0.5)' : 'rgba(234,88,12,1)');
+
+    const tempData = data.map(d => temps[d.m] !== undefined ? temps[d.m] : null);
+    const tempColors = data.map(d => tempType[d.m]==='forecast' ? 'rgba(37,99,235,0.4)' : 'rgba(37,99,235,1)');
+    const tempBorderDash = data.map(d => tempType[d.m]==='forecast' ? [6,4] : []);
+
+    new Chart(ctx, {
+        type:'bar',
+        data:{
+            labels,
+            datasets:[
+                {
+                    label:'Ölverbrauch (L)',
+                    data: data.map(d=>d.c),
+                    backgroundColor: barColors,
+                    borderColor: barBorders,
+                    borderWidth:1, borderRadius:3, yAxisID:'y', order:2,
+                    datalabels: {
+                        display: function(ctx) { return ctx.dataset.data[ctx.dataIndex] > 0; },
+                        anchor: 'end', align: 'top',
+                        font: { size: 9, weight: '600' },
+                        color: '#b45309',
+                        formatter: function(v) { return v ? v.toLocaleString('de-DE') : ''; }
+                    }
+                },
+                {
+                    label:'Temperatur (°C)',
+                    data: tempData,
+                    type:'line',
+                    borderColor:'rgba(37,99,235,0.8)',
+                    backgroundColor:'rgba(37,99,235,0.05)',
+                    pointBackgroundColor: tempColors,
+                    pointBorderColor: tempColors,
+                    borderWidth:2.5, pointRadius:4, pointHoverRadius:7,
+                    tension:0.3, fill:false, yAxisID:'y1', order:1,
+                    datalabels: { display: false },
+                    segment: {
+                        borderDash: ctx2 => {
+                            const idx = ctx2.p0DataIndex;
+                            const m = data[idx] ? data[idx].m : '';
+                            return m >= '2026-02' ? [6,4] : [];
+                        }
+                    }
+                }
+            ]
+        },
+        options:{
+            responsive:true, maintainAspectRatio:false,
+            layout:{ padding:{ top:20 } },
+            plugins:{
+                legend:{position:'top',labels:{font:{size:11}}},
+                tooltip:{
+                    callbacks:{
+                        afterLabel:(ctx)=>{
+                            const d=data[ctx.dataIndex];
+                            if(ctx.datasetIndex===0 && d.d) return d.d+' L/Tag'+(d.t==='f'?' (Prognose)':'');
+                            return '';
+                        }
+                    }
+                }
+            },
+            scales:{
+                y:{beginAtZero:true,position:'left',title:{display:true,text:'Liter'},grid:{color:'#f0f0f0'}},
+                y1:{position:'right',title:{display:true,text:'°C'},grid:{display:false},
+                    ticks:{callback:v=>v+'°'}},
+                x:{grid:{display:false},ticks:{maxRotation:45,font:{size:10}}}
+            }
+        },
+        plugins:[heizungPlugin(HEIZUNG)]
+    });
+}
+
+// ========== OIL YEAR-OVER-YEAR CHART ==========
+function renderOilYoyChart(){
+    const ctx = document.getElementById('oilYoyChart').getContext('2d');
+    const monthLabels = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
+
+    // Oil data by year and month (0=Jan, 11=Dec)
+    const oilData2024 = [null, null, null, null, null, null, null, null, 390, 606, 871, 1202];
+    const oilData2025 = [1289, 985, 1038, 193, 106, null, null, 47, 219, 495, 804, 589];
+    const oilData2026 = [1129, 1229, 768, 143, 106, 0, 0, 47, 219, 495, 804, 589];
+
+    const tempData2024 = [null,null,null,null,null,null,null,null,16.1,11.0,6.3,5.2];
+    const tempData2025 = [2.4,2.3,6.4,10.5,13.1,17.4,18.7,17.9,15.7,10.8,6.3,4.9];
+    const tempData2026 = [-0.3,1.5,5.0,9.0,13.5,16.5,18.0,17.5,14.0,10.0,5.6,3.0];
+
+    // Determine which months are forecast for 2026 (Mar-Dec)
+    const forecastMonths2026 = [false,false,true,true,true,true,true,true,true,true,true,true];
+
+    new Chart(ctx,{
+        type:'bar',
+        data:{
+            labels:monthLabels,
+            datasets:[
+                // 2024 bars
+                {
+                    label:'2024',
+                    data:oilData2024,
+                    backgroundColor:'rgba(251,146,60,0.6)',
+                    borderColor:'rgba(251,146,60,1)',
+                    borderWidth:1,borderRadius:3,
+                    yAxisID:'y',order:2,
+                    datalabels: {
+                        display: function(ctx) { var v=ctx.dataset.data[ctx.dataIndex]; return v!==null && v>100; },
+                        anchor: 'end', align: 'top',
+                        font: { size: 8, weight: '600' },
+                        color: 'rgba(180,100,20,0.9)',
+                        formatter: function(v) { return v ? v.toLocaleString('de-DE') : ''; }
+                    }
+                },
+                // 2025 bars
+                {
+                    label:'2025',
+                    data:oilData2025,
+                    backgroundColor:'rgba(234,88,12,0.75)',
+                    borderColor:'rgba(234,88,12,1)',
+                    borderWidth:1,borderRadius:3,
+                    yAxisID:'y',order:2,
+                    datalabels: {
+                        display: function(ctx) { var v=ctx.dataset.data[ctx.dataIndex]; return v!==null && v>100; },
+                        anchor: 'end', align: 'top',
+                        font: { size: 8, weight: '600' },
+                        color: 'rgba(180,60,0,0.9)',
+                        formatter: function(v) { return v ? v.toLocaleString('de-DE') : ''; }
+                    }
+                },
+                // 2026 bars
+                {
+                    label:'2026',
+                    data:oilData2026.map((v,i)=>v),
+                    backgroundColor:oilData2026.map((v,i)=>forecastMonths2026[i]?'rgba(180,40,0,0.35)':'rgba(180,40,0,0.9)'),
+                    borderColor:oilData2026.map((v,i)=>forecastMonths2026[i]?'rgba(180,40,0,0.5)':'rgba(180,40,0,1)'),
+                    borderWidth:1,borderRadius:3,
+                    yAxisID:'y',order:2,
+                    datalabels: {
+                        display: function(ctx) { var v=ctx.dataset.data[ctx.dataIndex]; return v!==null && v>100; },
+                        anchor: 'end', align: 'top',
+                        font: { size: 8, weight: '600' },
+                        color: 'rgba(120,20,0,0.9)',
+                        formatter: function(v) { return v ? v.toLocaleString('de-DE') : ''; }
+                    }
+                },
+                // Temperature lines
+                {
+                    label:'Temp 2024',
+                    data:tempData2024,
+                    type:'line',
+                    borderColor:'rgba(147,197,253,1)',
+                    backgroundColor:'transparent',
+                    pointBackgroundColor:'rgba(147,197,253,1)',
+                    pointBorderColor:'rgba(147,197,253,1)',
+                    borderWidth:2,pointRadius:3,pointHoverRadius:6,
+                    tension:0.3,fill:false,yAxisID:'y1',order:1
+                ,
+                datalabels: { display: false }},
+                {
+                    label:'Temp 2025',
+                    data:tempData2025,
+                    type:'line',
+                    borderColor:'rgba(37,99,235,1)',
+                    backgroundColor:'transparent',
+                    pointBackgroundColor:'rgba(37,99,235,1)',
+                    pointBorderColor:'rgba(37,99,235,1)',
+                    borderWidth:2,pointRadius:3,pointHoverRadius:6,
+                    tension:0.3,fill:false,yAxisID:'y1',order:1
+                ,
+                datalabels: { display: false }},
+                {
+                    label:'Temp 2026',
+                    data:tempData2026,
+                    type:'line',
+                    borderColor:'rgba(30,58,138,1)',
+                    backgroundColor:'transparent',
+                    pointBackgroundColor:tempData2026.map((v,i)=>forecastMonths2026[i]?'rgba(30,58,138,0.5)':'rgba(30,58,138,1)'),
+                    pointBorderColor:tempData2026.map((v,i)=>forecastMonths2026[i]?'rgba(30,58,138,0.5)':'rgba(30,58,138,1)'),
+                    borderWidth:2,pointRadius:3,pointHoverRadius:6,
+                    tension:0.3,fill:false,yAxisID:'y1',order:1,
+                    datalabels: { display: false },
+                    segment:{
+                        borderDash:ctx2=>{
+                            const idx=ctx2.p0DataIndex;
+                            return idx>=2?[6,4]:[];
+                        }
+                    }
+                }
+            ]
+        },
+        options:{
+            responsive:true,maintainAspectRatio:false,
+            layout:{ padding:{ top:20 } },
+            plugins:{
+                legend:{position:'top',labels:{font:{size:11}}},
+                tooltip:{callbacks:{
+                    label:ctx2=>{
+                        const v=ctx2.parsed.y;
+                        if(ctx2.datasetIndex<=2){
+                            return v!==null?ctx2.dataset.label+': '+num(v)+' L':'';
+                        }else{
+                            return ctx2.dataset.label+': '+num(v,1)+'°C';
+                        }
+                    }
+                }}
+            },
+            scales:{
+                y:{beginAtZero:true,position:'left',title:{display:true,text:'Liter'},grid:{color:'#f0f0f0'}},
+                y1:{position:'right',title:{display:true,text:'°C'},grid:{display:false},ticks:{callback:v=>v+'°'}},
+                x:{grid:{display:false},ticks:{maxRotation:0,font:{size:10}}}
+            }
+        }
+    });
+}
+
+// ========== HEIZUNG COMPARE ==========
+function renderHeizungCompare(){
+    const oilMap={};
+    oilMonthly.filter(d=>d.t==='a'&&d.c!==null).forEach(d=>{oilMap[d.m]=d;});
+    const before=['2024-09','2024-10','2024-11','2024-12','2025-01'];
+    const after=['2025-09','2025-10','2025-11','2025-12','2026-01'];
+    let bL=0,bD=0,aL=0,aD=0;
+    before.forEach(m=>{if(oilMap[m]){bL+=oilMap[m].c; bD+=m.endsWith('09')||m.endsWith('11')?30:31;}});
+    after.forEach(m=>{if(oilMap[m]){aL+=oilMap[m].c; aD+=m.endsWith('09')||m.endsWith('11')?30:31;}});
+    const bAvg=bD>0?bL/bD:0, aAvg=aD>0?aL/aD:0;
+    const change=bAvg>0?((aAvg-bAvg)/bAvg*100):0;
+    const cls=change<0?'down':'up';
+
+    document.getElementById('heizungCompare').innerHTML=`
+        <div class="comparison-row"><span class="lbl">Alte Heizung (Sep 24 bis Jan 25)</span><span class="v">${num(bAvg,1)} L/Tag</span></div>
+        <div class="comparison-row"><span class="lbl">Neue Heizung (Sep 25 bis Jan 26)</span><span class="v">${num(aAvg,1)} L/Tag</span></div>
+        <div class="comparison-row"><span class="lbl">Veränderung</span><span class="v"><span class="badge ${cls}">${change>0?'+':''}${num(change,0)}%</span></span></div>
+        <div class="comparison-row"><span class="lbl">Gesamt vorher (5 Monate)</span><span class="v">${num(bL)} L</span></div>
+        <div class="comparison-row"><span class="lbl">Gesamt nachher (5 Monate)</span><span class="v">${num(aL)} L</span></div>
+        <div class="comparison-row"><span class="lbl">Einsparung</span><span class="v"><span class="badge down">${num(bL-aL)} L</span></span></div>
+    `;
+}
+
+// ========== DELIVERIES TABLE ==========
+function renderDeliveries(){
+    const tbody=document.querySelector('#deliveryTable tbody');
+    tbody.innerHTML=deliveries.map(d=>{
+        return `<tr><td>${d.date}</td><td><span class="badge delivery">+${num(d.amount)} L</span></td><td>${num(d.level)} L</td></tr>`;
+    }).join('');
+}
+
+// ========== TANK CHART ==========
+function renderTankChart(){
+    const ctx = document.getElementById('tankChart').getContext('2d');
+    const actual = tankTimeline.filter(d=>d.t==='a');
+    const forecast = tankTimeline.filter(d=>d.t==='f');
+    const allPoints = tankTimeline;
+
+    const fmtDate = d => {
+        const dt=new Date(d);
+        return MN[dt.getMonth()]+' '+dt.getDate();
+    };
+
+    // Combine into one dataset with segment styling
+    const labels = allPoints.map(d=>fmtDate(d.d));
+    const values = allPoints.map(d=>d.l);
+    const types = allPoints.map(d=>d.t);
+    const lastActual = actual.length-1;
+
+    new Chart(ctx,{
+        type:'line',
+        data:{
+            labels,
+            datasets:[
+                {
+                    label:'Tankstand (L)',
+                    data:values,
+                    borderColor:'rgba(234,88,12,1)',
+                    backgroundColor:'rgba(234,88,12,0.08)',
+                    fill:true, tension:0.05, pointRadius:3, pointHoverRadius:6, borderWidth:2,
+                    segment:{
+                        borderDash:ctx2=>{
+                            const idx=ctx2.p0DataIndex;
+                            return types[idx]==='f'||types[idx+1]==='f'?[6,4]:[];
+                        },
+                        borderColor:ctx2=>{
+                            const idx=ctx2.p0DataIndex;
+                            return types[idx]==='f'||types[idx+1]==='f'?'rgba(234,88,12,0.5)':'rgba(234,88,12,1)';
+                        }
+                    }
+                },
+                {
+                    label:'Nachbestellgrenze (800 L)',
+                    data:Array(values.length).fill(800),
+                    borderColor:'rgba(220,38,38,0.4)',
+                    borderWidth:2, borderDash:[8,4],
+                    pointRadius:0, fill:false
+                }
+            ]
+        },
+        options:{
+            responsive:true,maintainAspectRatio:false,
+            plugins:{
+                legend:{position:'top',labels:{font:{size:11}}},
+                tooltip:{callbacks:{
+                    title:items=>allPoints[items[0].dataIndex].d,
+                    label:ctx2=>ctx2.datasetIndex===0?num(ctx2.parsed.y)+' L'+(types[ctx2.dataIndex]==='f'?' (Prognose)':''):''
+                }}
+            },
+            scales:{
+                y:{beginAtZero:true,title:{display:true,text:'Liter'},grid:{color:'#f0f0f0'},max:5500},
+                x:{grid:{display:false},ticks:{maxTicksLimit:15,maxRotation:45,font:{size:10}}}
+            }
+        }
+    });
+}
+
+// ========== ORDER ALERT ==========
+// ========== PRICE CHART ==========
+function renderPriceChart(){
+    const ctx = document.getElementById('priceChart').getContext('2d');
+    const labels = oilPrices.map(d=>ml(d.m));
+    const values = oilPrices.map(d=>d.p);
+    const types = oilPrices.map(d=>d.t);
+
+    new Chart(ctx,{
+        type:'line',
+        data:{
+            labels,
+            datasets:[{
+                label:'EUR/100 Liter',
+                data:values,
+                borderColor:'rgba(234,88,12,1)',
+                backgroundColor:'rgba(234,88,12,0.05)',
+                fill:true, tension:0.3, pointRadius:4, pointHoverRadius:7, borderWidth:2.5,
+                pointBackgroundColor:oilPrices.map(d=>d.t==='f'?'rgba(234,88,12,0.4)':'rgba(234,88,12,1)'),
+                segment:{
+                    borderDash:ctx2=>{
+                        return types[ctx2.p0DataIndex]==='f'||types[ctx2.p1DataIndex]==='f'?[6,4]:[];
+                    }
+                }
+            }]
+        },
+        options:{
+            responsive:true,maintainAspectRatio:false,
+            plugins:{
+                legend:{display:false},
+                tooltip:{callbacks:{label:ctx2=>num(ctx2.parsed.y,1)+' EUR/100L'+(types[ctx2.dataIndex]==='f'?' (Prognose)':'')}}
+            },
+            scales:{
+                y:{title:{display:true,text:'EUR / 100 Liter'},grid:{color:'#f0f0f0'},
+                   suggestedMin:70,suggestedMax:110,ticks:{callback:v=>v+' €'}},
+                x:{grid:{display:false},ticks:{maxRotation:45,font:{size:10}}}
+            }
+        }
+    });
+}
+
+// ========== STROM ==========
+function renderStromStats(){
+    const full = stromMonthly;
+    const last = full[full.length-1];
+    const before = full.filter(d=>d.m<HEIZUNG);
+    const after = full.filter(d=>d.m>=HEIZUNG);
+    const bAvg = before.reduce((s,d)=>s+d.d,0)/before.length;
+    const aAvg = after.reduce((s,d)=>s+d.d,0)/after.length;
+    const change = ((aAvg-bAvg)/bAvg*100);
+    const y2025 = full.filter(d=>d.m.startsWith('2025'));
+    const total2025 = y2025.reduce((s,d)=>s+d.c,0);
+
+    document.getElementById('stromStats').innerHTML=`
+        <div class="stat-card strom"><div class="lbl">Aktuell</div><div class="val blue">${num(last.d,1)} kWh/Tag</div><div class="det">${ml(last.m)}: ${num(last.c)} kWh</div></div>
+        <div class="stat-card strom"><div class="lbl">Hochrechnung/Jahr</div><div class="val blue">~${num(aAvg*365)} kWh</div><div class="det">~${num(aAvg*365*0.30)} EUR (0,30 EUR/kWh)</div></div>
+        <div class="stat-card strom"><div class="lbl">Gesamt 2025</div><div class="val blue">${num(total2025)} kWh</div><div class="det">12 Monate</div></div>
+        <div class="stat-card strom"><div class="lbl">Effekt Wärmepumpe</div><div class="val blue"><span class="badge up">+${num(change,0)}%</span></div><div class="det">kWh/Tag: vorher ${num(bAvg,1)}, nachher ${num(aAvg,1)}</div></div>
+    `;
+}
+
+function renderStromChart(){
+    const ctx=document.getElementById('stromChart').getContext('2d');
+    const data=stromMonthly;
+    const labels=data.map(d=>ml(d.m));
+    const colors=data.map(d=>d.m<HEIZUNG?'rgba(37,99,235,0.55)':'rgba(37,99,235,0.9)');
+
+    new Chart(ctx,{
+        type:'bar',
+        data:{labels,datasets:[{
+            label:'kWh/Monat',data:data.map(d=>d.c),
+            backgroundColor:colors,borderColor:'rgba(37,99,235,1)',borderWidth:1,borderRadius:3,
+            datalabels: {
+                display: true,
+                anchor: 'end', align: 'top',
+                font: { size: 9, weight: '600' },
+                color: '#1e40af',
+                formatter: function(v) { return v ? v.toLocaleString('de-DE') : ''; }
+            }
+        }]},
+        options:{
+            responsive:true,maintainAspectRatio:false,
+            layout:{ padding:{ top:20 } },
+            plugins:{legend:{display:false},tooltip:{callbacks:{afterLabel:ctx2=>{const d=data[ctx2.dataIndex];return d.d+' kWh/Tag';}}}},
+            scales:{y:{beginAtZero:true,title:{display:true,text:'kWh'},grid:{color:'#f0f0f0'}},x:{grid:{display:false},ticks:{font:{size:10}}}}
+        },
+        plugins:[heizungPlugin(HEIZUNG)]
+    });
+}
+
+function renderStromDailyChart(){
+    const ctx=document.getElementById('stromDailyChart').getContext('2d');
+    const data=stromMonthly;
+    const labels=data.map(d=>ml(d.m));
+
+    new Chart(ctx,{
+        type:'line',
+        data:{labels,datasets:[{
+            label:'kWh/Tag',data:data.map(d=>d.d),
+            borderColor:'rgba(37,99,235,1)',backgroundColor:'rgba(37,99,235,0.08)',
+            fill:true,tension:0.3,pointRadius:4,pointHoverRadius:7,borderWidth:2.5
+        }]},
+        options:{
+            responsive:true,maintainAspectRatio:false,
+            plugins:{legend:{display:false}},
+            scales:{y:{beginAtZero:true,title:{display:true,text:'kWh/Tag'},grid:{color:'#f0f0f0'}},x:{grid:{display:false},ticks:{font:{size:10}}}}
+        },
+        plugins:[heizungPlugin(HEIZUNG)]
+    });
+}
+
+// ========== WASSER ==========
+function renderWasserStats(){
+    const full=wasserMonthly.filter(d=>d.c>10); // exclude partial months
+    const avg=full.reduce((s,d)=>s+d.c,0)/full.length;
+    const total2025=wasserMonthly.filter(d=>d.m.startsWith('2025')).reduce((s,d)=>s+d.c,0);
+
+    document.getElementById('wasserStats').innerHTML=`
+        <div class="stat-card wasser"><div class="lbl">Durchschnitt/Monat</div><div class="val green">${num(avg,1)} m³</div><div class="det">${num(avg*12,0)} m³ hochgerechnet/Jahr</div></div>
+        <div class="stat-card wasser"><div class="lbl">Gesamt 2025</div><div class="val green">~${num(total2025,0)} m³</div><div class="det">Stabil, kaum Schwankungen</div></div>
+    `;
+}
+
+function renderWasserChart(){
+    const ctx=document.getElementById('wasserChart').getContext('2d');
+    const data=wasserMonthly.filter(d=>d.c>10);
+    const labels=data.map(d=>ml(d.m));
+
+    new Chart(ctx,{
+        type:'bar',
+        data:{labels,datasets:[{
+            label:'m³/Monat',data:data.map(d=>d.c),
+            backgroundColor:'rgba(22,163,74,0.6)',borderColor:'rgba(22,163,74,1)',borderWidth:1,borderRadius:3,
+            datalabels: {
+                display: true,
+                anchor: 'end', align: 'top',
+                font: { size: 9, weight: '600' },
+                color: '#15803d',
+                formatter: function(v) { return v ? v.toLocaleString('de-DE',{minimumFractionDigits:1,maximumFractionDigits:1}) : ''; }
+            }
+        }]},
+        options:{
+            responsive:true,maintainAspectRatio:false,
+            layout:{ padding:{ top:16 } },
+            plugins:{legend:{display:false}},
+            scales:{y:{beginAtZero:true,title:{display:true,text:'m³'},grid:{color:'#f0f0f0'}},x:{grid:{display:false}}}
+        }
+    });
+}
+
+// ========== INIT ==========
+renderOilStats();
+renderOilTempChart();
+renderOilYoyChart();
+renderYearCompare();
+renderHeizungCompare();
+renderDeliveries();
+renderTankChart();
+
+renderPriceChart();
+renderStromStats();
+renderStromChart();
+renderStromDailyChart();
+renderWasserStats();
+renderWasserChart();
+
+function renderYearCompare() {
+    const monthNames = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+    const oilMap = {};
+    oilMonthly.forEach(d => { oilMap[d.m] = d; });
+    const EFF = 0.74; // 26% Effizienzgewinn neue Heizung
+
+    let rows = '';
+    let total2025 = 0, total2026 = 0;
+
+    for (let mo = 1; mo <= 12; mo++) {
+        const key25 = '2025-' + String(mo).padStart(2,'0');
+        const c25 = oilMap[key25] ? (oilMap[key25].c || 0) : 0;
+        total2025 += c25;
+
+        let c26, method;
+        if (mo === 1) {
+            // Jan: gemessen (aus Vergleichszeitraum)
+            c26 = 1129;
+            method = '<span class="badge" style="background:rgba(37,99,235,0.1);color:#2563eb;">gemessen</span>';
+        } else if (mo >= 2 && mo <= 4) {
+            // Feb, Mar, Apr: 26% Effizienz auf 2025 Werte
+            c26 = Math.round(c25 * EFF);
+            method = '<span class="badge down">\u221226%</span>';
+        } else {
+            // Mai bis Dez: gleicher Verbrauch wie 2025
+            c26 = c25;
+            method = '<span class="badge" style="background:#f0f0f0;color:#636e72;">= 2025</span>';
+        }
+        total2026 += c26;
+
+        rows += '<tr><td>' + monthNames[mo-1] + '</td><td style="text-align:right">' + (c25 > 0 ? num(c25) : '~0') + '</td><td style="text-align:right">' + (c26 > 0 ? num(c26) : '~0') + '</td><td>' + method + '</td></tr>';
+    }
+
+    const savePct = total2025 > 0 ? Math.round((1 - total2026/total2025)*100) : 0;
+    rows += '<tr style="font-weight:700;border-top:2px solid var(--border);"><td>Gesamt</td><td style="text-align:right">' + num(total2025) + ' L</td><td style="text-align:right">' + num(total2026) + ' L</td><td><span class="badge down">' + savePct + '% Einsparung</span></td></tr>';
+
+    document.querySelector('#yearCompareTable tbody').innerHTML = rows;
+}
+
+// ========== LIVE DATA FETCH ==========
+function parseCSVDate(str) {
+    str = str.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return new Date(str + 'T12:00:00');
+    const parts = str.split(' ');
+    const dp = parts[0].split('/');
+    if (dp.length === 3) return new Date(parseInt(dp[2]), parseInt(dp[0])-1, parseInt(dp[1]));
+    return new Date(str);
+}
+
+async function loadLiveData() {
+    try {
+        const resp = await fetch(CSV_URL);
+        if (!resp.ok) return;
+        const text = await resp.text();
+        const lines = text.split('\n').filter(l => l.trim());
+        if (lines.length < 2) return;
+
+        const headers = lines[0].split(',').map(h => h.trim());
+        const oilIdx = headers.findIndex(h => h === 'Öl' || h === 'Oel' || h === 'Oil');
+
+        let latestOil = null, latestOilDate = null, latestAnyDate = null;
+
+        for (let i = 1; i < lines.length; i++) {
+            const cols = lines[i].split(',');
+            if (!cols[0] || !cols[0].trim()) continue;
+            const date = parseCSVDate(cols[0]);
+            if (isNaN(date.getTime())) continue;
+            latestAnyDate = date;
+
+            if (oilIdx >= 0 && cols[oilIdx] && cols[oilIdx].trim()) {
+                const val = parseInt(cols[oilIdx].trim());
+                if (!isNaN(val)) { latestOil = val; latestOilDate = date; }
+            }
+        }
+
+        let changed = false;
+
+        if (latestOil !== null && latestOil !== liveTankLevel) {
+            liveTankLevel = latestOil;
+            liveTankDate = latestOilDate.getDate() + '. ' + MN[latestOilDate.getMonth()];
+            changed = true;
+        }
+
+        if (latestAnyDate) {
+            const mLong = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+            document.querySelector('header .sub').textContent =
+                'Börnsener Weg | seit September 2024 | Stand: ' + latestAnyDate.getDate() + '. ' + mLong[latestAnyDate.getMonth()] + ' ' + latestAnyDate.getFullYear();
+        }
+
+        if (changed) renderOilStats();
+
+    } catch(e) {
+        console.log('Live-Daten nicht verfügbar, nutze gespeicherte Daten.');
+    }
+}
+
+loadLiveData();
+</script>
+</body>
+</html>
