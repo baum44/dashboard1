@@ -115,7 +115,7 @@
 <div class="dashboard">
     <header>
         <h1>Nebenkosten Dashboard</h1>
-        <div class="sub">Börnsener Weg | seit September 2024 | Stand: 12. Februar 2026</div>
+        <div class="sub">Stand: 12. Februar 2026</div>
     </header>
 
     <!-- ======================== ÖL ======================== -->
@@ -957,7 +957,7 @@ async function loadLiveData() {
         if (latestAnyDate) {
             const mLong = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
             document.querySelector('header .sub').textContent =
-                'Börnsener Weg | seit September 2024 | Stand: ' + latestAnyDate.getDate() + '. ' + mLong[latestAnyDate.getMonth()] + ' ' + latestAnyDate.getFullYear();
+                'Stand: ' + latestAnyDate.getDate() + '. ' + mLong[latestAnyDate.getMonth()] + ' ' + latestAnyDate.getFullYear();
         }
 
         if (changed) renderOilStats();
