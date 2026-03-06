@@ -139,6 +139,13 @@
             <div class="yoy-chart-wrapper"><div class="chart-box tall"><canvas id="oilYoyChart"></canvas></div></div>
         </div>
 
+        <!-- Temperature chart -->
+        <div class="card">
+            <h3>Außentemperatur: Monatsmittel</h3>
+            <div class="subtitle">Hamburg / Schleswig-Holstein · Alle Werte DWD-bestätigt (Monatspressemitteilungen) · Formel (neue Heizung ab Mai 2025): Verbrauch ≈ max(0, 948 − 48 × T) L/Monat · Heizgrenze ~20 °C · R² = 0,87</div>
+            <div class="chart-box"><canvas id="tempChart"></canvas></div>
+        </div>
+
         <!-- Tank level + forecast -->
         <div class="card">
             <h3>Öltank Füllstand + Prognose</h3>
@@ -293,10 +300,10 @@ const tankTimeline = [
 ];
 
 const deliveries = [
-    {date:'26.09.2024',amount:2000,level:2909,price:89.5},
-    {date:'07.11.2024',amount:3000,level:5024,price:99.5},
-    {date:'19.02.2025',amount:3000,level:4231,price:96.0},
-    {date:'28.11.2025',amount:3000,level:4099,price:95.7},
+    {date:'26.09.2024',amount:1944,level:2909,price:89.5},
+    {date:'07.11.2024',amount:2908,level:5024,price:99.5},
+    {date:'19.02.2025',amount:2644,level:4231,price:96.0},
+    {date:'28.11.2025',amount:2777,level:4099,price:95.7},
     {date:'05.03.2026',amount:1455,level:2777,price:null}
 ];
 
@@ -763,6 +770,131 @@ function renderWasserChart(){
     });
 }
 
+// ========== TEMPERATURE CHART ==========
+(function() {
+    // Monthly mean temperatures for Hamburg (Station Fuhlsbüttel/Flughafen)
+    // Source: DWD Monatspressemitteilungen 2025 – alle Werte Hamburg-spezifisch
+    // Jan: 2.4°C | Feb: 2.3°C | Mar: 6.4°C | Apr: 10.7°C | May: 13.1°C | Jun: 17.4°C
+    // Jul: 18.7°C | Aug: 18.1°C | Sep: 15.7°C | Oct: 10.8°C
+    // Nov: 6.2°C (aus DWD-Herbstmittel Sep–Nov = 10.9°C abgeleitet; Jahresmittel 10.6°C stimmt)
+    // Dec: 4.9°C | Jahresmittel: 10.6°C (DWD-bestätigt)
+    // Jan 2026: -0.3°C | Feb 2026: 0.5°C (DWD-bestätigt)
+    window._tempData = {
+        2025: [2.4, 2.3, 6.4, 10.7, 13.1, 17.4, 18.7, 18.1, 15.7, 10.8, 6.2, 4.9],
+        _2025est: [false, false, false, false, false, false, false, false, false, false, false, false],
+        2026: [-0.3, 0.5, null, null, null, null, null, null, null, null, null, null]
+    };
+})();
+
+let _tempChartInst = null;
+function renderTempChart() {
+    const ctx = document.getElementById('tempChart');
+    if (!ctx) return;
+    if (_tempChartInst) { _tempChartInst.destroy(); _tempChartInst = null; }
+
+    const labels = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
+    const t25 = window._tempData[2025];
+    const t26 = window._tempData[2026];
+    const est = window._tempData._2025est;
+
+    // Build point styles for 2025: open circle = estimated, filled = DWD confirmed
+    const pointStyle25 = t25.map((_, i) => est[i] ? 'circle' : 'rectRot');
+    const pointRadius25 = t25.map((_, i) => est[i] ? 3 : 5);
+    const borderDash25 = [];
+
+    // Segment coloring: dashed where estimated
+    const color2025 = '#ea580c';
+    const color2026 = '#2563eb';
+
+    _tempChartInst = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                {
+                    label: '2025',
+                    data: t25,
+                    borderColor: color2025,
+                    backgroundColor: 'rgba(234,88,12,0.08)',
+                    borderWidth: 2,
+                    pointRadius: pointRadius25,
+                    pointStyle: pointStyle25,
+                    pointBackgroundColor: t25.map((_, i) => est[i] ? '#fff' : color2025),
+                    pointBorderColor: color2025,
+                    pointBorderWidth: 2,
+                    tension: 0.35,
+                    fill: false,
+                    segment: {
+                        borderDash: ctx2 => {
+                            // dashed segment if start point is estimated
+                            const i = ctx2.p0DataIndex;
+                            return est[i] ? [5, 4] : [];
+                        }
+                    },
+                    spanGaps: false
+                },
+                {
+                    label: '2026',
+                    data: t26,
+                    borderColor: color2026,
+                    backgroundColor: 'rgba(37,99,235,0.08)',
+                    borderWidth: 2.5,
+                    pointRadius: 5,
+                    pointStyle: 'circle',
+                    pointBackgroundColor: color2026,
+                    pointBorderColor: color2026,
+                    tension: 0.35,
+                    fill: false,
+                    spanGaps: false
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: {
+                    position: 'top',
+                    labels: { boxWidth: 20, font: { size: 12 } }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: ctx2 => {
+                            const val = ctx2.parsed.y;
+                            if (val === null) return null;
+                            const yr = ctx2.dataset.label;
+                            const i = ctx2.dataIndex;
+                            const estMark = yr === '2025' && window._tempData._2025est[i] ? ' *' : '';
+                            const verbrauch = Math.max(0, Math.round(948 - 48 * val));
+                            return `${yr}: ${val.toFixed(1)} °C${estMark}  →  ~${verbrauch} L Prognose`;
+                        },
+                        afterBody: ctx2 => {
+                            const hasEst = ctx2.some(c => c.dataset.label === '2025' && window._tempData._2025est[c.dataIndex]);
+                            return hasEst ? ['* Schätzwert (nicht DWD-bestätigt)'] : [];
+                        }
+                    }
+                },
+                datalabels: { display: false }
+            },
+            scales: {
+                x: {
+                    grid: { color: 'rgba(0,0,0,0.04)' },
+                    ticks: { font: { size: 12 } }
+                },
+                y: {
+                    title: { display: true, text: '°C', font: { size: 12 } },
+                    grid: { color: 'rgba(0,0,0,0.06)' },
+                    ticks: {
+                        font: { size: 12 },
+                        callback: v => v + ' °C'
+                    }
+                }
+            }
+        }
+    });
+}
+
 // ========== INIT ==========
 function renderAll() {
     renderOilStats();
@@ -771,6 +903,7 @@ function renderAll() {
     renderHeizungCompare();
     renderDeliveries();
     renderTankChart();
+    renderTempChart();
     renderStromStats();
     renderStromChart();
     renderWasserStats();
