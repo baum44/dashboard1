@@ -79,6 +79,10 @@
         }
         .info-box strong { color:var(--purple); }
         .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+        .yoy-chart-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        @media (max-width: 768px) {
+            .yoy-chart-wrapper .chart-box { min-width: 720px; }
+        }
         table { width:100%; border-collapse:collapse; font-size:13px; }
         th { text-align:left; padding:8px 10px; background:#f8f9fa; border-bottom:2px solid var(--border); font-weight:600; font-size:11px; text-transform:uppercase; color:var(--text-light); }
         td { padding:8px 10px; border-bottom:1px solid #f0f0f0; }
@@ -126,13 +130,13 @@
     <div class="section">
         <div class="section-title">Heizöl</div>
 
-        <div class="stats-row" id="oilStats"></div>
+        <div class="stats-row" id="oilStats"><div style="color:var(--text-light);font-size:13px;padding:12px 4px;">Daten werden geladen…</div></div>
 
         <!-- Year-over-Year comparison chart -->
         <div class="card">
             <h3>Jahresvergleich: Ölverbrauch</h3>
             <div class="subtitle">Gleiche Monate im Vergleich. X-Achse = Jan bis Dez. Jedes Jahr eine eigene Farbe. Nur abgeschlossene Monate.</div>
-            <div class="chart-box tall"><canvas id="oilYoyChart"></canvas></div>
+            <div class="yoy-chart-wrapper"><div class="chart-box tall"><canvas id="oilYoyChart"></canvas></div></div>
         </div>
 
         <!-- Tank level + forecast -->
@@ -223,18 +227,18 @@ const oilMonthly = [
     {m:'2024-10',c:606,d:19.5,t:'a'},
     {m:'2024-11',c:871,d:29.0,t:'a'},
     {m:'2024-12',c:1202,d:38.8,t:'a'},
-    {m:'2025-01',c:1289,d:41.6,t:'a'},
-    {m:'2025-02',c:985,d:35.2,t:'a'},
-    {m:'2025-03',c:1038,d:33.5,t:'a'},
-    {m:'2025-04',c:193,d:6.4,t:'a'},
-    {m:'2025-05',c:106,d:3.4,t:'a'},
-    {m:'2025-06',c:null,d:null,t:'a'},
-    {m:'2025-07',c:null,d:null,t:'a'},
-    {m:'2025-08',c:47,d:1.5,t:'a'},
-    {m:'2025-09',c:219,d:7.3,t:'a'},
-    {m:'2025-10',c:495,d:16.0,t:'a'},
-    {m:'2025-11',c:804,d:26.8,t:'a'},
-    {m:'2025-12',c:589,d:19.0,t:'a'},
+    {m:'2025-01',c:1275,d:41.1,t:'a'},
+    {m:'2025-02',c:1078,d:38.5,t:'a'},
+    {m:'2025-03',c:1044,d:33.7,t:'a'},
+    {m:'2025-04',c:182,d:6.1,t:'a'},
+    {m:'2025-05',c:102,d:3.3,t:'a'},
+    {m:'2025-06',c:0,d:0,t:'a'},
+    {m:'2025-07',c:0,d:0,t:'a'},
+    {m:'2025-08',c:51,d:1.6,t:'a'},
+    {m:'2025-09',c:226,d:7.5,t:'a'},
+    {m:'2025-10',c:494,d:15.9,t:'a'},
+    {m:'2025-11',c:498,d:16.6,t:'a'},
+    {m:'2025-12',c:601,d:19.4,t:'a'},
     {m:'2026-01',c:1129,d:36.4,t:'a'},
     {m:'2026-02',c:882,d:31.5,t:'a'},
     {m:'2026-03',c:768,d:24.8,t:'f'},
@@ -324,29 +328,10 @@ function heizungPlugin(heizMonth) {
 }
 
 // ========== PROGNOSE 2026 HELPER ==========
-// Calculates the 2026 forecast: Jan+Feb measured, Mar based on Jan/Feb savings rate, Apr+ = 2025 values
+// Gemessene Monate = tatsächliche Werte, alle anderen = 2025-Wert (kein Sparrate-Kalkulation)
 function getPrognose2026() {
     const oilMap = {};
     oilMonthly.forEach(d => { oilMap[d.m] = d; });
-
-    // Find which 2026 months are measured (complete)
-    const measured26 = new Set();
-    oilMonthly.filter(d => d.m.startsWith('2026') && d.t === 'a' && isComplete(d.m, oilLatestMonth))
-        .forEach(d => measured26.add(parseInt(d.m.split('-')[1])));
-
-    // Calculate savings rate from measured winter months (Jan, Feb, Mar if available)
-    let sum25 = 0, sum26 = 0;
-    for (const mo of [1, 2, 3]) {
-        if (!measured26.has(mo)) continue;
-        const e25 = oilMap['2025-' + String(mo).padStart(2,'0')];
-        const e26 = oilMap['2026-' + String(mo).padStart(2,'0')];
-        if (e25 && e26 && e25.c > 0) { sum25 += e25.c; sum26 += e26.c; }
-    }
-    const savingsRate = (sum25 > 0) ? (1 - sum26 / sum25) : 0;
-
-    // Determine if March needs special prognose treatment
-    // Only if March is NOT yet measured AND April is also not measured
-    const marchNeedsPrognose = !measured26.has(3) && !measured26.has(4);
 
     let total = 0;
     const months = [];
@@ -356,22 +341,18 @@ function getPrognose2026() {
         const e26 = oilMap[key26], e25 = oilMap[key25];
         let val, method;
 
-        if (measured26.has(mo)) {
+        if (e26 && e26.t === 'a' && isComplete(key26, oilLatestMonth)) {
             val = e26.c || 0;
             method = 'gemessen';
-        } else if (mo === 3 && marchNeedsPrognose && sum25 > 0) {
-            // March: apply Jan/Feb savings rate to March 2025 value
-            val = e25 ? Math.round((e25.c || 0) * (1 - savingsRate)) : 0;
-            method = 'prognose';
         } else {
-            // All other months: same as 2025
+            // Alle ungemessenen Monate: = 2025-Wert
             val = e25 ? (e25.c || 0) : 0;
             method = '= 2025';
         }
         total += val;
         months.push({ mo, val, method });
     }
-    return { total, months, savingsRate };
+    return { total, months };
 }
 
 // ========== OIL STATS ==========
@@ -783,18 +764,18 @@ function renderWasserChart(){
 }
 
 // ========== INIT ==========
-renderOilStats();
-renderOilYoyChart();
-
-renderYearCompare();
-renderHeizungCompare();
-renderDeliveries();
-renderTankChart();
-
-renderStromStats();
-renderStromChart();
-renderWasserStats();
-renderWasserChart();
+function renderAll() {
+    renderOilStats();
+    renderOilYoyChart();
+    renderYearCompare();
+    renderHeizungCompare();
+    renderDeliveries();
+    renderTankChart();
+    renderStromStats();
+    renderStromChart();
+    renderWasserStats();
+    renderWasserChart();
+}
 
 function renderYearCompare() {
     const mn = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
@@ -846,10 +827,20 @@ function renderYearCompare() {
 // ========== LIVE DATA FETCH ==========
 function parseCSVDate(str) {
     str = str.trim();
+    // ISO date only: 2024-09-01
     if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return new Date(str + 'T12:00:00');
+    // US format: 3/5/2026 or 3/5/2026 10:58:38
     const parts = str.split(' ');
     const dp = parts[0].split('/');
-    if (dp.length === 3) return new Date(parseInt(dp[2]), parseInt(dp[0])-1, parseInt(dp[1]));
+    if (dp.length === 3) {
+        const yr = parseInt(dp[2]), mo = parseInt(dp[0])-1, dy = parseInt(dp[1]);
+        if (parts.length > 1) {
+            // Zeitstempel beibehalten: gleichtägige Einträge bleiben in der richtigen Reihenfolge
+            const tp = parts[1].split(':');
+            return new Date(yr, mo, dy, parseInt(tp[0]||0), parseInt(tp[1]||0), parseInt(tp[2]||0));
+        }
+        return new Date(yr, mo, dy, 12, 0, 0);
+    }
     return new Date(str);
 }
 
@@ -1056,20 +1047,81 @@ async function loadLiveData() {
         }
         oilMonthly.sort((a,b) => a.m.localeCompare(b.m));
 
-        // 7) Re-render all components
-        renderOilStats();
-        renderYearCompare();
-        renderOilYoyChart();
-        
-        renderTankChart();
-        renderDeliveries();
-        renderStromStats();
-        renderStromChart();
-        renderWasserStats();
-        renderWasserChart();
+        // Helper: interpolate a meter reading at a given date from a sorted readings array.
+        // If no reading exists before 'dt', falls back to the first reading in the same month
+        // (handles the edge case where the very first reading is mid-day on the 1st).
+        function meterAt(readings, dt, month) {
+            let rb = null, ra = null;
+            for (const r of readings) {
+                if (r.date <= dt) rb = r; else if (!ra) ra = r;
+            }
+            if (rb && rb.date < dt && ra) {
+                return rb.val + (ra.val - rb.val) * ((dt - rb.date) / (ra.date - rb.date));
+            }
+            if (rb) return rb.val;
+            // No reading before dt — use first reading if it falls in the same month
+            if (ra && ra.month === month) return ra.val;
+            return null;
+        }
+
+        // 7) Compute stromMonthly from CSV (interpolate to month boundaries)
+        if (stromReadings.length >= 2) {
+            stromMonthly.length = 0;
+            let [sy, sm] = stromReadings[0].month.split('-').map(Number);
+            const [sly, slm] = stromLatestMonth.split('-').map(Number);
+            while (sy < sly || (sy === sly && sm < slm)) {
+                const month = sy + '-' + String(sm).padStart(2,'0');
+                const monthStart = new Date(sy, sm-1, 1);
+                const monthEnd = new Date(sy, sm, 1);
+                const levelStart = meterAt(stromReadings, monthStart, month);
+                // For levelEnd we need a reading after monthEnd — always present since loop stops before latestMonth
+                let rb2 = null, ra2 = null;
+                for (const r of stromReadings) {
+                    if (r.date <= monthEnd) rb2 = r; else if (!ra2) ra2 = r;
+                }
+                if (levelStart !== null && rb2 && ra2) {
+                    const f2 = rb2.date < monthEnd ? (monthEnd - rb2.date) / (ra2.date - rb2.date) : 0;
+                    const levelEnd = rb2.val + (ra2.val - rb2.val) * f2;
+                    const consumption = Math.max(0, Math.round(levelEnd - levelStart));
+                    const daysInMonth = new Date(sy, sm, 0).getDate();
+                    stromMonthly.push({ m: month, c: consumption, d: Math.round(consumption / daysInMonth * 10) / 10 });
+                }
+                sm++; if (sm > 12) { sm = 1; sy++; }
+            }
+        }
+
+        // 8) Compute wasserMonthly from CSV (interpolate to month boundaries)
+        if (wasserReadings.length >= 2) {
+            wasserMonthly.length = 0;
+            let [wy, wm] = wasserReadings[0].month.split('-').map(Number);
+            const [wly, wlm] = wasserLatestMonth.split('-').map(Number);
+            while (wy < wly || (wy === wly && wm < wlm)) {
+                const month = wy + '-' + String(wm).padStart(2,'0');
+                const monthStart = new Date(wy, wm-1, 1);
+                const monthEnd = new Date(wy, wm, 1);
+                const levelStart = meterAt(wasserReadings, monthStart, month);
+                let rb2 = null, ra2 = null;
+                for (const r of wasserReadings) {
+                    if (r.date <= monthEnd) rb2 = r; else if (!ra2) ra2 = r;
+                }
+                if (levelStart !== null && rb2 && ra2) {
+                    const f2 = rb2.date < monthEnd ? (monthEnd - rb2.date) / (ra2.date - rb2.date) : 0;
+                    const levelEnd = rb2.val + (ra2.val - rb2.val) * f2;
+                    const consumption = Math.max(0, parseFloat((levelEnd - levelStart).toFixed(1)));
+                    const daysInMonth = new Date(wy, wm, 0).getDate();
+                    wasserMonthly.push({ m: month, c: consumption, d: parseFloat((consumption / daysInMonth).toFixed(2)) });
+                }
+                wm++; if (wm > 12) { wm = 1; wy++; }
+            }
+        }
+
+        // 9) Re-render all components
+        renderAll();
 
     } catch(e) {
+        // CSV nicht erreichbar: mit hardgecodeten Fallback-Werten rendern
         console.log('Live-Daten nicht verfügbar, nutze gespeicherte Daten.');
+        renderAll();
     }
 }
 
