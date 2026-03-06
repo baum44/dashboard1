@@ -437,13 +437,15 @@ function renderOilStats(){
             }
         }
     }
-    const saving = total2025>0 ? Math.round((1-prog.total/total2025)*100) : 0;
+    const savingPct = total2025>0 ? Math.round((1-prog.total/total2025)*100) : 0;
+    const savingLabel = savingPct >= 0 ? savingPct + '% weniger als 2025' : Math.abs(savingPct) + '% mehr als 2025';
+    const savingColor = savingPct >= 0 ? 'green' : 'orange';
 
     document.getElementById('oilStats').innerHTML = `
         <div class="stat-card"><div class="lbl">Aktueller Verbrauch</div><div class="val orange">${num(currentRate,1)} L/Tag</div><div class="det">${rateLabel}</div></div>
         <div class="stat-card"><div class="lbl">Tankstand (${liveTankDate})</div><div class="val ${liveTankLevel<1000?'red':'orange'}">${num(liveTankLevel)} L</div><div class="det">${daysTo800 > 0 ? 'Ca. ' + daysTo800 + ' Tage bis 800L Nachbestellgrenze' : 'Unter Nachbestellgrenze!'}</div></div>
         <div class="stat-card"><div class="lbl">Gesamt 2025</div><div class="val orange">${num(total2025)} L</div><div class="det">Jun/Jul = 0 (Tank unverändert)</div></div>
-        <div class="stat-card"><div class="lbl">Prognose 2026</div><div class="val green">~${num(prog.total)} L</div><div class="det">${saving}% weniger als 2025</div></div>
+        <div class="stat-card"><div class="lbl">Prognose 2026</div><div class="val ${savingColor}">~${num(prog.total)} L</div><div class="det">${savingLabel}</div></div>
     `;
 }
 
@@ -833,7 +835,9 @@ function renderYearCompare() {
         const cls = m === 'gemessen' ? 'background:rgba(37,99,235,0.1);color:#2563eb;' : m === 'prognose' ? 'background:rgba(234,88,12,0.1);color:var(--orange);' : 'background:#f0f0f0;color:#636e72;';
         h += '<td style="text-align:right;padding:6px 4px;"><span style="font-size:10px;padding:2px 5px;border-radius:8px;' + cls + '">' + m + '</span></td>';
     }
-    h += '<td style="text-align:right;padding:6px 8px;"><span class="badge down">' + savePct + '%</span></td></tr>';
+    const badgeClass = savePct >= 0 ? 'badge down' : 'badge up';
+    const badgeText = savePct >= 0 ? savePct + '%' : '+' + Math.abs(savePct) + '%';
+    h += '<td style="text-align:right;padding:6px 8px;"><span class="' + badgeClass + '">' + badgeText + '</span></td></tr>';
 
     h += '</tbody></table>';
     document.getElementById('yearCompareTable').innerHTML = h;
@@ -983,12 +987,34 @@ async function loadLiveData() {
             if (!before || !after) continue;
 
             // Check for deliveries WITHIN the month only (not outside boundaries)
+            // Also estimate hidden consumption during delivery gaps
             let deliveryAmount = 0;
             for (let i = 1; i < oilReadings.length; i++) {
                 const prev = oilReadings[i-1], curr = oilReadings[i];
                 if (curr.date > monthStart && curr.date < monthEnd) {
                     const jump = curr.level - prev.level;
-                    if (jump > 500) deliveryAmount += jump;
+                    if (jump > 500) {
+                        const gapDays = (curr.date - prev.date) / 86400000;
+                        // Estimate consumption during gap using rate from surrounding readings
+                        let estRate = 0, rateCount = 0;
+                        // Pre-delivery rate
+                        if (i >= 2) {
+                            const pp = oilReadings[i-2];
+                            const preDiff = pp.level - prev.level;
+                            const preDays = (prev.date - pp.date) / 86400000;
+                            if (preDiff > 0 && preDays > 0) { estRate += preDiff / preDays; rateCount++; }
+                        }
+                        // Post-delivery rate
+                        if (i + 1 < oilReadings.length) {
+                            const nx = oilReadings[i+1];
+                            const postDiff = curr.level - nx.level;
+                            const postDays = (nx.date - curr.date) / 86400000;
+                            if (postDiff > 0 && postDays > 0) { estRate += postDiff / postDays; rateCount++; }
+                        }
+                        if (rateCount > 0) estRate /= rateCount;
+                        const hiddenConsumption = Math.round(estRate * gapDays);
+                        deliveryAmount += jump + hiddenConsumption;
+                    }
                 }
             }
 
