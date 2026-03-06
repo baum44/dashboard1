@@ -135,17 +135,17 @@
             <div class="chart-box tall"><canvas id="oilYoyChart"></canvas></div>
         </div>
 
-        <!-- Year-over-Year line chart -->
+        <!-- Tank level + forecast -->
         <div class="card">
-            <h3>Jahresvergleich: Ölverbrauch (Linien)</h3>
-            <div class="subtitle">Gleiche Daten als Linienchart. Jedes Jahr eine Linie.</div>
-            <div class="chart-box tall"><canvas id="oilYoyLineChart"></canvas></div>
+            <h3>Öltank Füllstand + Prognose</h3>
+            <div class="subtitle">Messwerte seit Beginn + 6 Monate Prognose (ohne Nachlieferung). Rote Linie = Nachbestellgrenze (~800L).</div>
+            <div class="chart-box tall"><canvas id="tankChart"></canvas></div>
         </div>
 
         <!-- Year comparison table -->
         <div class="card" style="overflow-x:auto;">
             <h3>Jahresverbrauch: 2025 vs. 2026 Prognose</h3>
-            <div class="subtitle">Jan bis Apr: 26% Einsparung durch neue Heizung. Mai bis Dez: gleicher Verbrauch (neue Heizung in beiden Jahren). Nur abgeschlossene Monate mit echten Werten.</div>
+            <div class="subtitle">Gemessene Monate blau. Ab April: gleich wie 2025.</div>
             <div id="yearCompareTable"></div>
         </div>
 
@@ -153,24 +153,17 @@
         <div class="grid-2">
             <div class="card">
                 <h3>Vorher vs. Nachher: Heizungseffekt</h3>
-                <div class="subtitle">Gleicher Zeitraum Sep bis Jan (nur abgeschlossene Monate), alte vs. neue Heizung</div>
+                <div class="subtitle">Gleicher Zeitraum Sep bis Feb (nur abgeschlossene Monate), alte vs. neue Heizung</div>
                 <div id="heizungCompare"></div>
             </div>
             <div class="card">
                 <h3>Öllieferungen</h3>
-                <div class="subtitle">Bisherige Lieferungen und Kosten</div>
+                <div class="subtitle">Bisherige Lieferungen</div>
                 <table id="deliveryTable">
                     <thead><tr><th>Datum</th><th>Menge</th><th>Tankstand danach</th></tr></thead>
                     <tbody></tbody>
                 </table>
             </div>
-        </div>
-
-        <!-- Tank level -->
-        <div class="card">
-            <h3>Öltank Füllstand</h3>
-            <div class="subtitle">Messwerte seit Jan 2025. Rote Zone = Nachbestellen nötig (~800L).</div>
-            <div class="chart-box tall"><canvas id="tankChart"></canvas></div>
         </div>
     </div>
 
@@ -330,22 +323,127 @@ function heizungPlugin(heizMonth) {
     };
 }
 
+// ========== PROGNOSE 2026 HELPER ==========
+// Calculates the 2026 forecast: Jan+Feb measured, Mar based on Jan/Feb savings rate, Apr+ = 2025 values
+function getPrognose2026() {
+    const oilMap = {};
+    oilMonthly.forEach(d => { oilMap[d.m] = d; });
+
+    // Find which 2026 months are measured (complete)
+    const measured26 = new Set();
+    oilMonthly.filter(d => d.m.startsWith('2026') && d.t === 'a' && isComplete(d.m, oilLatestMonth))
+        .forEach(d => measured26.add(parseInt(d.m.split('-')[1])));
+
+    // Calculate savings rate from measured winter months (Jan, Feb, Mar if available)
+    let sum25 = 0, sum26 = 0;
+    for (const mo of [1, 2, 3]) {
+        if (!measured26.has(mo)) continue;
+        const e25 = oilMap['2025-' + String(mo).padStart(2,'0')];
+        const e26 = oilMap['2026-' + String(mo).padStart(2,'0')];
+        if (e25 && e26 && e25.c > 0) { sum25 += e25.c; sum26 += e26.c; }
+    }
+    const savingsRate = (sum25 > 0) ? (1 - sum26 / sum25) : 0;
+
+    // Determine if March needs special prognose treatment
+    // Only if March is NOT yet measured AND April is also not measured
+    const marchNeedsPrognose = !measured26.has(3) && !measured26.has(4);
+
+    let total = 0;
+    const months = [];
+    for (let mo = 1; mo <= 12; mo++) {
+        const key26 = '2026-' + String(mo).padStart(2,'0');
+        const key25 = '2025-' + String(mo).padStart(2,'0');
+        const e26 = oilMap[key26], e25 = oilMap[key25];
+        let val, method;
+
+        if (measured26.has(mo)) {
+            val = e26.c || 0;
+            method = 'gemessen';
+        } else if (mo === 3 && marchNeedsPrognose && sum25 > 0) {
+            // March: apply Jan/Feb savings rate to March 2025 value
+            val = e25 ? Math.round((e25.c || 0) * (1 - savingsRate)) : 0;
+            method = 'prognose';
+        } else {
+            // All other months: same as 2025
+            val = e25 ? (e25.c || 0) : 0;
+            method = '= 2025';
+        }
+        total += val;
+        months.push({ mo, val, method });
+    }
+    return { total, months, savingsRate };
+}
+
 // ========== OIL STATS ==========
 function renderOilStats(){
     const actual = oilMonthly.filter(d=>d.t==='a'&&d.c!==null&&isComplete(d.m,oilLatestMonth));
     const y2025 = oilMonthly.filter(d=>d.m.startsWith('2025'));
     const total2025 = y2025.reduce((s,d)=>s+(d.c||0),0);
-    // Prognose 2026: dynamisch aus oilMonthly (aktuelle + Prognose Werte)
-    const proj2026 = oilMonthly.filter(d=>d.m.startsWith('2026')).reduce((s,d)=>s+(d.c||0),0);
-    const lastMonth = actual[actual.length-1];
-    const daysLeft = Math.floor(liveTankLevel / lastMonth.d);
-    const saving = total2025>0 ? Math.round((1-proj2026/total2025)*100) : 0;
+    const prog = getPrognose2026();
+
+    // Current consumption: rate between last two tank readings where level dropped
+    let currentRate = actual.length > 0 ? actual[actual.length-1].d : 0;
+    let rateLabel = actual.length > 0 ? ml(actual[actual.length-1].m) : '';
+    // Try to get a more current rate from tankTimeline (between last two actual drops)
+    const actuals = tankTimeline.filter(t => t.t === 'a');
+    for (let i = actuals.length - 1; i >= 1; i--) {
+        const curr = actuals[i], prev = actuals[i-1];
+        const diff = prev.l - curr.l;
+        const days = (new Date(curr.d+'T12:00:00') - new Date(prev.d+'T12:00:00')) / 86400000;
+        if (diff > 0 && days > 0) {
+            currentRate = Math.round(diff / days * 10) / 10;
+            rateLabel = prev.d.substring(5).replace('-','.') + ' bis ' + curr.d.substring(5).replace('-','.');
+            break;
+        }
+    }
+    // Calculate days to 800L using varying monthly rates (same as tank chart prognose)
+    let daysTo800 = 0;
+    if (liveTankLevel > 800) {
+        const daysInMonth = (yr, mo) => new Date(yr, mo, 0).getDate();
+        function getDailyRateStat(yr, mo) {
+            const key = yr + '-' + String(mo).padStart(2, '0');
+            if (yr === 2026) {
+                const pm = prog.months[mo - 1];
+                if (pm) return pm.val / daysInMonth(yr, mo);
+            }
+            const entry = oilMonthly.find(d => d.m === key);
+            if (entry && entry.d) return entry.d;
+            return 0;
+        }
+        // Get date from last actual tankTimeline entry
+        const lastActual = tankTimeline.filter(t => t.t === 'a');
+        const startDate = lastActual.length > 0
+            ? new Date(lastActual[lastActual.length - 1].d + 'T12:00:00')
+            : new Date();
+        let simLevel = liveTankLevel;
+        let simYear = startDate.getFullYear();
+        let simMonth = startDate.getMonth() + 1;
+        // Consume remaining days of current month
+        const remainDays = daysInMonth(simYear, simMonth) - startDate.getDate();
+        let rate = getDailyRateStat(simYear, simMonth);
+        for (let d = 0; d < remainDays && simLevel > 800; d++) {
+            simLevel -= rate;
+            daysTo800++;
+        }
+        // Walk through future months day by day
+        for (let m = 0; m < 24 && simLevel > 800; m++) {
+            simMonth++;
+            if (simMonth > 12) { simMonth = 1; simYear++; }
+            rate = getDailyRateStat(simYear, simMonth);
+            const dim = daysInMonth(simYear, simMonth);
+            for (let d = 0; d < dim && simLevel > 800; d++) {
+                simLevel -= rate;
+                daysTo800++;
+            }
+        }
+    }
+    const saving = total2025>0 ? Math.round((1-prog.total/total2025)*100) : 0;
 
     document.getElementById('oilStats').innerHTML = `
-        <div class="stat-card"><div class="lbl">Aktueller Verbrauch</div><div class="val orange">${num(lastMonth.d,1)} L/Tag</div><div class="det">${ml(lastMonth.m)}: ${num(lastMonth.c)} L</div></div>
-        <div class="stat-card"><div class="lbl">Tankstand (${liveTankDate})</div><div class="val ${liveTankLevel<1000?'red':'orange'}">${num(liveTankLevel)} L</div><div class="det">Reicht noch ca. ${daysLeft} Tage</div></div>
+        <div class="stat-card"><div class="lbl">Aktueller Verbrauch</div><div class="val orange">${num(currentRate,1)} L/Tag</div><div class="det">${rateLabel}</div></div>
+        <div class="stat-card"><div class="lbl">Tankstand (${liveTankDate})</div><div class="val ${liveTankLevel<1000?'red':'orange'}">${num(liveTankLevel)} L</div><div class="det">${daysTo800 > 0 ? 'Ca. ' + daysTo800 + ' Tage bis 800L Nachbestellgrenze' : 'Unter Nachbestellgrenze!'}</div></div>
         <div class="stat-card"><div class="lbl">Gesamt 2025</div><div class="val orange">${num(total2025)} L</div><div class="det">Jun/Jul = 0 (Tank unverändert)</div></div>
-        <div class="stat-card"><div class="lbl">Prognose 2026</div><div class="val green">~${num(proj2026)} L</div><div class="det">${saving}% weniger als 2025</div></div>
+        <div class="stat-card"><div class="lbl">Prognose 2026</div><div class="val green">~${num(prog.total)} L</div><div class="det">${saving}% weniger als 2025</div></div>
     `;
 }
 
@@ -372,30 +470,30 @@ function renderOilYoyChart(){
                 {
                     label:'2024',
                     data:oilData2024,
-                    backgroundColor:'rgba(251,146,60,0.6)',
-                    borderColor:'rgba(251,146,60,1)',
-                    borderWidth:1,borderRadius:3,
-                    yAxisID:'y',order:2,
+                    backgroundColor:'rgba(251,146,60,0.2)',
+                    borderColor:'rgba(251,146,60,0.4)',
+                    borderWidth:1,borderRadius:3,borderDash:[3,3],
+                    yAxisID:'y',order:3,
                     datalabels: {
                         display: function(ctx) { var v=ctx.dataset.data[ctx.dataIndex]; return v!==null && v>100; },
                         anchor: 'end', align: 'top',
-                        font: { size: 8, weight: '600' },
-                        color: 'rgba(180,100,20,0.9)',
+                        font: { size: 7, weight: '400' },
+                        color: 'rgba(180,100,20,0.4)',
                         formatter: function(v) { return v ? v.toLocaleString('de-DE') : ''; }
                     }
                 },
                 {
                     label:'2025',
                     data:oilData2025,
-                    backgroundColor:'rgba(234,88,12,0.75)',
-                    borderColor:'rgba(234,88,12,1)',
+                    backgroundColor:'rgba(234,88,12,0.25)',
+                    borderColor:'rgba(234,88,12,0.5)',
                     borderWidth:1,borderRadius:3,
                     yAxisID:'y',order:2,
                     datalabels: {
                         display: function(ctx) { var v=ctx.dataset.data[ctx.dataIndex]; return v!==null && v>100; },
                         anchor: 'end', align: 'top',
-                        font: { size: 8, weight: '600' },
-                        color: 'rgba(180,60,0,0.9)',
+                        font: { size: 7, weight: '400' },
+                        color: 'rgba(180,60,0,0.5)',
                         formatter: function(v) { return v ? v.toLocaleString('de-DE') : ''; }
                     }
                 },
@@ -404,8 +502,8 @@ function renderOilYoyChart(){
                     data:oilData2026,
                     backgroundColor:'rgba(180,40,0,0.9)',
                     borderColor:'rgba(180,40,0,1)',
-                    borderWidth:1,borderRadius:3,
-                    yAxisID:'y',order:2,
+                    borderWidth:1.5,borderRadius:3,
+                    yAxisID:'y',order:1,
                     datalabels: {
                         display: function(ctx) { var v=ctx.dataset.data[ctx.dataIndex]; return v!==null && v>100; },
                         anchor: 'end', align: 'top',
@@ -436,87 +534,28 @@ function renderOilYoyChart(){
     });
 }
 
-// ========== OIL YEAR-OVER-YEAR LINE CHART ==========
-function renderOilYoyLineChart(){
-    const ex = Chart.getChart('oilYoyLineChart'); if(ex) ex.destroy();
-    const ctx = document.getElementById('oilYoyLineChart').getContext('2d');
-    const monthLabels = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
-
-    function yearOilLine(yr) {
-        const d = new Array(12).fill(null);
-        oilMonthly.filter(e=>e.m.startsWith(yr) && isComplete(e.m, oilLatestMonth)).forEach(e=>{ d[parseInt(e.m.split('-')[1])-1]=e.c; });
-        return d;
-    }
-
-    new Chart(ctx,{
-        type:'line',
-        data:{
-            labels:monthLabels,
-            datasets:[
-                {
-                    label:'2024',
-                    data:yearOilLine('2024'),
-                    borderColor:'rgba(251,146,60,1)',
-                    backgroundColor:'transparent',
-                    borderWidth:2.5, pointRadius:4, pointHoverRadius:7, tension:0.3,
-                    datalabels:{ display:false }
-                },
-                {
-                    label:'2025',
-                    data:yearOilLine('2025'),
-                    borderColor:'rgba(234,88,12,1)',
-                    backgroundColor:'transparent',
-                    borderWidth:2.5, pointRadius:4, pointHoverRadius:7, tension:0.3,
-                    datalabels:{ display:false }
-                },
-                {
-                    label:'2026',
-                    data:yearOilLine('2026'),
-                    borderColor:'rgba(180,40,0,1)',
-                    backgroundColor:'transparent',
-                    borderWidth:2.5, pointRadius:4, pointHoverRadius:7, tension:0.3,
-                    datalabels:{ display:false }
-                }
-            ]
-        },
-        options:{
-            responsive:true,maintainAspectRatio:false,
-            plugins:{
-                legend:{position:'top',labels:{font:{size:11}}},
-                tooltip:{callbacks:{
-                    label:ctx2=>{
-                        const v=ctx2.parsed.y;
-                        return v!==null?ctx2.dataset.label+': '+num(v)+' L':'';
-                    }
-                }}
-            },
-            scales:{
-                y:{beginAtZero:true,title:{display:true,text:'Liter'},grid:{color:'#f0f0f0'}},
-                x:{grid:{display:false},ticks:{maxRotation:0,font:{size:10}}}
-            }
-        }
-    });
-}
-
 // ========== HEIZUNG COMPARE ==========
 function renderHeizungCompare(){
     const oilMap={};
-    oilMonthly.filter(d=>d.t==='a'&&d.c!==null).forEach(d=>{oilMap[d.m]=d;});
-    const before=['2024-09','2024-10','2024-11','2024-12','2025-01'];
-    const after=['2025-09','2025-10','2025-11','2025-12','2026-01'];
+    oilMonthly.filter(d=>d.t==='a'&&d.c!==null&&isComplete(d.m,oilLatestMonth)).forEach(d=>{oilMap[d.m]=d;});
+    const before=['2024-09','2024-10','2024-11','2024-12','2025-01','2025-02'];
+    const after=['2025-09','2025-10','2025-11','2025-12','2026-01','2026-02'];
+    const daysInMonth = m => new Date(parseInt(m.split('-')[0]), parseInt(m.split('-')[1]), 0).getDate();
     let bL=0,bD=0,aL=0,aD=0;
-    before.forEach(m=>{if(oilMap[m]){bL+=oilMap[m].c; bD+=m.endsWith('09')||m.endsWith('11')?30:31;}});
-    after.forEach(m=>{if(oilMap[m]){aL+=oilMap[m].c; aD+=m.endsWith('09')||m.endsWith('11')?30:31;}});
+    before.forEach(m=>{if(oilMap[m]){bL+=oilMap[m].c; bD+=daysInMonth(m);}});
+    after.forEach(m=>{if(oilMap[m]){aL+=oilMap[m].c; aD+=daysInMonth(m);}});
     const bAvg=bD>0?bL/bD:0, aAvg=aD>0?aL/aD:0;
     const change=bAvg>0?((aAvg-bAvg)/bAvg*100):0;
     const cls=change<0?'down':'up';
+    const nBefore = before.filter(m=>oilMap[m]).length;
+    const nAfter = after.filter(m=>oilMap[m]).length;
 
     document.getElementById('heizungCompare').innerHTML=`
-        <div class="comparison-row"><span class="lbl">Alte Heizung (Sep 24 bis Jan 25)</span><span class="v">${num(bAvg,1)} L/Tag</span></div>
-        <div class="comparison-row"><span class="lbl">Neue Heizung (Sep 25 bis Jan 26)</span><span class="v">${num(aAvg,1)} L/Tag</span></div>
+        <div class="comparison-row"><span class="lbl">Alte Heizung (Sep 24 bis Feb 25)</span><span class="v">${num(bAvg,1)} L/Tag</span></div>
+        <div class="comparison-row"><span class="lbl">Neue Heizung (Sep 25 bis Feb 26)</span><span class="v">${num(aAvg,1)} L/Tag</span></div>
         <div class="comparison-row"><span class="lbl">Veränderung</span><span class="v"><span class="badge ${cls}">${change>0?'+':''}${num(change,0)}%</span></span></div>
-        <div class="comparison-row"><span class="lbl">Gesamt vorher (5 Monate)</span><span class="v">${num(bL)} L</span></div>
-        <div class="comparison-row"><span class="lbl">Gesamt nachher (5 Monate)</span><span class="v">${num(aL)} L</span></div>
+        <div class="comparison-row"><span class="lbl">Gesamt vorher (${nBefore} Monate)</span><span class="v">${num(bL)} L</span></div>
+        <div class="comparison-row"><span class="lbl">Gesamt nachher (${nAfter} Monate)</span><span class="v">${num(aL)} L</span></div>
         <div class="comparison-row"><span class="lbl">Einsparung</span><span class="v"><span class="badge down">${num(bL-aL)} L</span></span></div>
     `;
 }
@@ -525,33 +564,97 @@ function renderHeizungCompare(){
 function renderDeliveries(){
     const tbody=document.querySelector('#deliveryTable tbody');
     tbody.innerHTML=deliveries.map(d=>{
-        const priceStr = d.price ? ` (${num(d.price,1)} ct/L)` : '';
-        return `<tr><td>${d.date}</td><td><span class="badge delivery">+${num(d.amount)} L</span>${priceStr}</td><td>${num(d.level)} L</td></tr>`;
+        return `<tr><td>${d.date}</td><td><span class="badge delivery">+${num(d.amount)} L</span></td><td>${num(d.level)} L</td></tr>`;
     }).join('');
 }
 
-// ========== TANK CHART (time scale, actuals only, from Jan 2025) ==========
+// ========== TANK CHART (time scale, actuals + 6 month forecast) ==========
 function renderTankChart(){
     const ex = Chart.getChart('tankChart'); if(ex) ex.destroy();
     const ctx = document.getElementById('tankChart').getContext('2d');
-    const points = tankTimeline.filter(d => d.t === 'a' && d.d >= '2025-01-01');
-
+    const points = tankTimeline.filter(d => d.t === 'a');
     const data = points.map(p => ({ x: p.d + 'T12:00:00', y: p.l }));
+    if (data.length === 0) return;
+
+    // Build 6-month forecast from last actual point using prognose monthly values
+    const lastPoint = data[data.length - 1];
+    const lastDate = new Date(lastPoint.x);
+    const lastLevel = lastPoint.y;
+    const prog = getPrognose2026();
+
+    const forecastData = [{ x: lastPoint.x, y: lastLevel }]; // start from last actual
+    let runningLevel = lastLevel;
+    const daysInMonth = (yr, mo) => new Date(yr, mo, 0).getDate();
+
+    // For each of the next 6 months, calculate consumption and mid-month level
+    let curYear = lastDate.getFullYear();
+    let curMonth = lastDate.getMonth() + 1; // 1-based
+    const lastDayOfMonth = daysInMonth(curYear, curMonth);
+    const remainingDaysThisMonth = lastDayOfMonth - lastDate.getDate();
+
+    // Get daily rate for a given year-month from prognose or oilMonthly
+    function getDailyRate(yr, mo) {
+        const key = yr + '-' + String(mo).padStart(2, '0');
+        // Try prognose for 2026
+        if (yr === 2026) {
+            const pm = prog.months[mo - 1];
+            if (pm) return pm.val / daysInMonth(yr, mo);
+        }
+        // Fallback to oilMonthly
+        const entry = oilMonthly.find(d => d.m === key);
+        if (entry && entry.d) return entry.d;
+        return 0;
+    }
+
+    // Consume remaining days of current month
+    let rate = getDailyRate(curYear, curMonth);
+    runningLevel -= rate * remainingDaysThisMonth;
+
+    // Add forecast for next 6 months (mid-month points)
+    for (let i = 0; i < 6; i++) {
+        curMonth++;
+        if (curMonth > 12) { curMonth = 1; curYear++; }
+        const dim = daysInMonth(curYear, curMonth);
+        rate = getDailyRate(curYear, curMonth);
+
+        // Level at start of this month (already calculated as runningLevel)
+        const levelMidMonth = Math.max(0, Math.round(runningLevel - rate * (dim / 2)));
+        const midDate = new Date(curYear, curMonth - 1, 15);
+        forecastData.push({ x: toDateStr(midDate) + 'T12:00:00', y: levelMidMonth });
+
+        // Consume full month
+        runningLevel -= rate * dim;
+        runningLevel = Math.max(0, runningLevel);
+    }
+
+    // Extend the 800L line to cover forecast period
+    const lastForecastX = forecastData[forecastData.length - 1].x;
 
     new Chart(ctx,{
         type:'line',
         data:{
             datasets:[
                 {
-                    label:'Tankstand (L)',
+                    label:'Tankstand (gemessen)',
                     data: data,
                     borderColor:'rgba(234,88,12,1)',
                     backgroundColor:'rgba(234,88,12,0.08)',
                     fill:true, tension:0.05, pointRadius:4, pointHoverRadius:7, borderWidth:2
                 },
                 {
+                    label:'Prognose (ohne Nachlieferung)',
+                    data: forecastData,
+                    borderColor:'rgba(234,88,12,0.5)',
+                    backgroundColor:'rgba(234,88,12,0.04)',
+                    fill:true, tension:0.3,
+                    pointRadius:5, pointHoverRadius:8, borderWidth:2,
+                    borderDash:[6,4],
+                    pointStyle:'triangle',
+                    pointBackgroundColor:'rgba(234,88,12,0.6)'
+                },
+                {
                     label:'Nachbestellgrenze (800 L)',
-                    data: [{ x: '2025-01-01T12:00:00', y: 800 }, { x: data[data.length-1].x, y: 800 }],
+                    data: [{ x: data[0].x, y: 800 }, { x: lastForecastX, y: 800 }],
                     borderColor:'rgba(220,38,38,0.4)',
                     borderWidth:2, borderDash:[8,4],
                     pointRadius:0, fill:false
@@ -567,7 +670,7 @@ function renderTankChart(){
                         const d = new Date(items[0].parsed.x);
                         return d.getDate()+'.'+( d.getMonth()+1)+'.'+d.getFullYear();
                     },
-                    label: ctx2 => ctx2.datasetIndex===0 ? num(ctx2.parsed.y)+' L' : ''
+                    label: ctx2 => ctx2.datasetIndex <= 1 ? num(ctx2.parsed.y)+' L' : ''
                 }}
             },
             scales:{
@@ -575,7 +678,7 @@ function renderTankChart(){
                 x:{
                     type:'time',
                     time:{ unit:'month', displayFormats:{ month:'MMM yy' } },
-                    min:'2025-01-01',
+                    min: data[0].x,
                     grid:{display:false},
                     ticks:{font:{size:10}}
                 }
@@ -680,7 +783,7 @@ function renderWasserChart(){
 // ========== INIT ==========
 renderOilStats();
 renderOilYoyChart();
-renderOilYoyLineChart();
+
 renderYearCompare();
 renderHeizungCompare();
 renderDeliveries();
@@ -695,37 +798,18 @@ function renderYearCompare() {
     const mn = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
     const oilMap = {};
     oilMonthly.forEach(d => { oilMap[d.m] = d; });
-    const EFF = 0.74;
+    const prog = getPrognose2026();
 
-    const vals25 = [], vals26 = [], methods = [];
-    let total2025 = 0, total2026 = 0;
-
+    const vals25 = [];
+    let total2025 = 0;
     for (let mo = 1; mo <= 12; mo++) {
         const key25 = '2025-' + String(mo).padStart(2,'0');
         const c25 = oilMap[key25] ? (oilMap[key25].c || 0) : 0;
         total2025 += c25;
         vals25.push(c25);
-
-        let c26, method;
-        const key26 = '2026-' + String(mo).padStart(2,'0');
-        const entry26 = oilMap[key26];
-
-        if (entry26 && entry26.t === 'a' && isComplete(key26, oilLatestMonth)) {
-            c26 = entry26.c || 0;
-            method = 'gemessen';
-        } else if (mo >= 2 && mo <= 4) {
-            c26 = Math.round(c25 * EFF);
-            method = '\u221226%';
-        } else {
-            c26 = c25;
-            method = '= 2025';
-        }
-        total2026 += c26;
-        vals26.push(c26);
-        methods.push(method);
     }
 
-    const savePct = total2025 > 0 ? Math.round((1 - total2026/total2025)*100) : 0;
+    const savePct = total2025 > 0 ? Math.round((1 - prog.total/total2025)*100) : 0;
 
     let h = '<table style="font-size:12px;"><thead><tr><th></th>';
     for (let i = 0; i < 12; i++) h += '<th style="text-align:right;padding:6px 8px;">' + mn[i] + '</th>';
@@ -737,15 +821,16 @@ function renderYearCompare() {
 
     h += '<tr><td style="font-weight:600;">2026</td>';
     for (let i = 0; i < 12; i++) {
-        const style = methods[i] === 'gemessen' ? 'color:#2563eb;font-weight:600;' : '';
-        h += '<td style="text-align:right;padding:6px 8px;' + style + '">' + (vals26[i] > 0 ? num(vals26[i]) : '~0') + '</td>';
+        const pm = prog.months[i];
+        const style = pm.method === 'gemessen' ? 'color:#2563eb;font-weight:600;' : '';
+        h += '<td style="text-align:right;padding:6px 8px;' + style + '">' + (pm.val > 0 ? num(pm.val) : '~0') + '</td>';
     }
-    h += '<td style="text-align:right;padding:6px 8px;font-weight:700;">' + num(total2026) + '</td></tr>';
+    h += '<td style="text-align:right;padding:6px 8px;font-weight:700;">' + num(prog.total) + '</td></tr>';
 
     h += '<tr style="border-top:1px solid #e0e0e0;"><td style="font-size:10px;color:var(--text-light);">Methode</td>';
     for (let i = 0; i < 12; i++) {
-        const m = methods[i];
-        const cls = m === 'gemessen' ? 'background:rgba(37,99,235,0.1);color:#2563eb;' : m.includes('26') ? 'background:var(--green-light);color:var(--green);' : 'background:#f0f0f0;color:#636e72;';
+        const m = prog.months[i].method;
+        const cls = m === 'gemessen' ? 'background:rgba(37,99,235,0.1);color:#2563eb;' : m === 'prognose' ? 'background:rgba(234,88,12,0.1);color:var(--orange);' : 'background:#f0f0f0;color:#636e72;';
         h += '<td style="text-align:right;padding:6px 4px;"><span style="font-size:10px;padding:2px 5px;border-radius:8px;' + cls + '">' + m + '</span></td>';
     }
     h += '<td style="text-align:right;padding:6px 8px;"><span class="badge down">' + savePct + '%</span></td></tr>';
@@ -897,11 +982,11 @@ async function loadLiveData() {
             }
             if (!before || !after) continue;
 
-            // Check for deliveries within this period
+            // Check for deliveries WITHIN the month only (not outside boundaries)
             let deliveryAmount = 0;
             for (let i = 1; i < oilReadings.length; i++) {
                 const prev = oilReadings[i-1], curr = oilReadings[i];
-                if (curr.date > before.date && curr.date <= after.date) {
+                if (curr.date > monthStart && curr.date < monthEnd) {
                     const jump = curr.level - prev.level;
                     if (jump > 500) deliveryAmount += jump;
                 }
@@ -949,7 +1034,7 @@ async function loadLiveData() {
         renderOilStats();
         renderYearCompare();
         renderOilYoyChart();
-        renderOilYoyLineChart();
+        
         renderTankChart();
         renderDeliveries();
         renderStromStats();
